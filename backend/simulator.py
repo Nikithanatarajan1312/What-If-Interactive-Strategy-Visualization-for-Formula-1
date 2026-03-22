@@ -13,6 +13,16 @@ def _norm_driver(d: str) -> str:
     return str(d or "").strip().upper()
 
 
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    """Like float(v) but treats None / bad values as default."""
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
 def _pit_laps_from_stints(stints_clean: List[Dict[str, Any]], driver: str) -> List[int]:
     """First lap of each stint after the first (pit-in laps)."""
     code = _norm_driver(driver)
@@ -67,7 +77,7 @@ def simulate_pit_strategy(
         if _norm_driver(r.get("driver", "")) != driver_u:
             continue
         lap = int(round(float(r.get("lap", 0))))
-        gap_by_lap[lap] = float(r.get("gap_to_leader", 0.0))
+        gap_by_lap[lap] = _safe_float(r.get("gap_to_leader"), 0.0)
 
     orig_pits = _pit_laps_from_stints(stints_clean, driver_u)
     if not orig_pits:
@@ -99,7 +109,7 @@ def simulate_pit_strategy(
 
     for r in driver_laps:
         lap = int(round(float(r.get("lap", 0))))
-        lt = float(r.get("lap_time_sec") or 0.0)
+        lt = _safe_float(r.get("lap_time_sec"), 0.0)
         comp = str(r.get("compound") or "MEDIUM").upper()
         tyre_age = int(round(float(r.get("tyre_age") or 1)))
 
