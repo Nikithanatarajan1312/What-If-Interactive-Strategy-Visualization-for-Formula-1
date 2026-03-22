@@ -169,10 +169,12 @@ function draw() {
           const currentPits = [...pitStops.map(p => ({ ...p }))]
           currentPits[pitIdx] = { ...currentPits[pitIdx], lap: clampedLap }
           currentPits.sort((a, b) => a.lap - b.lap)
-          store.modifiedStrategy = {
+          const strategy = {
             driverCode: driver.code,
             pitStops: currentPits,
           }
+          // Invalidate old sim + call API so race trace / overlays update (Pinia-friendly).
+          void store.applyPitStrategyChange(strategy)
         })
 
       dragCircle.call(drag)

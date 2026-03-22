@@ -11,7 +11,7 @@ import DeltaBreakdown from './components/DeltaBreakdown.vue'
 const store = useRaceStore()
 
 onMounted(() => {
-  store.loadAvailableRaces()
+  store.bootstrap()
 })
 </script>
 

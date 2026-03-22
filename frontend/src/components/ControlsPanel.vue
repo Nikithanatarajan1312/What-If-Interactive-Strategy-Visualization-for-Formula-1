@@ -1,13 +1,31 @@
 <script setup>
+import { computed } from 'vue'
 import { useRaceStore } from '../stores/raceStore'
 
 const store = useRaceStore()
 
+const raceSelectValue = computed(() => {
+  if (!store.selectedRace || !store.availableRaces.length) return ''
+  const i = store.availableRaces.findIndex(
+    (r) =>
+      r.year === store.selectedRace.year &&
+      r.grand_prix === store.selectedRace.grand_prix &&
+      r.country === store.selectedRace.country
+  )
+  return i >= 0 ? String(i) : ''
+})
+
+async function onYearChange(e) {
+  const y = Number(e.target.value)
+  if (!y) return
+  await store.loadRacesForYear(y)
+}
+
 function onRaceChange(e) {
-  const val = e.target.value
-  if (!val) return
-  const [year, round] = val.split('-')
-  store.loadRace(Number(year), Number(round))
+  const idx = e.target.value
+  if (idx === '' || idx === null) return
+  const race = store.availableRaces[Number(idx)]
+  if (race) store.loadRace(race)
 }
 
 function onDriverHover(code) {
@@ -31,25 +49,40 @@ function onResetStrategy() {
 function isDriverActive(code) {
   return store.selectedDrivers.length === 0 || store.selectedDrivers.includes(code)
 }
+
 </script>
 
 <template>
   <div class="controls" role="toolbar" aria-label="Dashboard controls">
+    <div class="controls-group">
+      <label class="control-label" for="year-select" id="year-label">Year</label>
+      <select
+        id="year-select"
+        class="control-select"
+        aria-labelledby="year-label"
+        :value="store.selectedYear"
+        @change="onYearChange"
+      >
+        <option v-for="y in store.availableYears" :key="y" :value="y">{{ y }}</option>
+      </select>
+    </div>
+
     <div class="controls-group">
       <label class="control-label" for="race-select" id="race-label">Race</label>
       <select
         id="race-select"
         class="control-select"
         aria-labelledby="race-label"
+        :value="raceSelectValue"
         @change="onRaceChange"
       >
         <option value="">Select a race…</option>
         <option
-          v-for="race in store.availableRaces"
-          :key="`${race.year}-${race.round}`"
-          :value="`${race.year}-${race.round}`"
+          v-for="(race, idx) in store.availableRaces"
+          :key="`${race.year}-${race.country}-${race.grand_prix}`"
+          :value="String(idx)"
         >
-          {{ race.year }} {{ race.name }}
+          {{ race.grand_prix }} — {{ race.country }}
         </option>
       </select>
     </div>

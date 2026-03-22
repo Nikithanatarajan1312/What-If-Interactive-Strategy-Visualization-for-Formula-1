@@ -1,0 +1,7 @@
+# F1 strategy backend + API
+fastapi>=0.109
+uvicorn[standard]>=0.27
+pydantic>=2.0
+pandas>=2.0
+requests>=2.28
+fastf1>=3.0
