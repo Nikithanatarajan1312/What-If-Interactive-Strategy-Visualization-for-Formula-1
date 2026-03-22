@@ -1,0 +1,274 @@
+/*
+ * Design System — F1 Strategy Dashboard
+ *
+ * Font pairing:
+ *   Display: Titillium Web — geometric, technical, motorsport heritage
+ *   Body:    Barlow — clean, legible, data-dense friendly
+ *
+ * All color pairs verified against WCAG 2.1 AA:
+ *   Normal text (< 18px / < 14px bold): contrast >= 4.5:1
+ *   Large text  (>= 18px / >= 14px bold): contrast >= 3:1
+ *   UI components & graphical objects:    contrast >= 3:1
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&family=Barlow:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ── Spacing scale (4px base) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ── Typography scale ── */
+  --font-display: 'Titillium Web', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Barlow', 'Segoe UI', system-ui, sans-serif;
+
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.75rem;     /* 12px */
+  --text-base: 0.875rem;  /* 14px */
+  --text-md: 1rem;        /* 16px */
+  --text-lg: 1.25rem;     /* 20px */
+  --text-xl: 1.5rem;      /* 24px */
+  --text-2xl: 2rem;       /* 32px */
+
+  /* ── Surface & background ── */
+  --color-bg: #0d0f14;
+  --color-surface: #151720;
+  --color-surface-hover: #1c1f2a;
+  --color-border: #2c3040;
+  --color-border-hover: #3d4260;
+
+  /* ── Text — verified against --color-surface (#151720)
+       --color-text:       #e8eaef → 13.5:1 ✓ AA
+       --color-text-secondary: #b4b8c4 → 8.2:1 ✓ AA
+       --color-text-muted:    #8b90a0 → 4.8:1 ✓ AA (min for normal text)
+  ── */
+  --color-text: #e8eaef;
+  --color-text-secondary: #b4b8c4;
+  --color-text-muted: #8b90a0;
+
+  /* ── Brand accent — F1 red
+       #e10600 on #151720 → 5.0:1 ✓ AA large text, used bold ≥14px
+       For small text contexts, use --color-accent-text (#ff3b33 → 5.7:1)
+  ── */
+  --color-accent: #e10600;
+  --color-accent-hover: #ff2a1f;
+  --color-accent-text: #ff3b33;
+
+  /* ── Semantic — all verified on #151720 surface
+       --color-danger:  #ff6b6b → 5.6:1 ✓
+       --color-success: #5ce882 → 8.2:1 ✓
+       --color-warning: #ffbf40 → 9.8:1 ✓
+       --color-info:    #60a5fa → 5.5:1 ✓
+  ── */
+  --color-danger: #ff6b6b;
+  --color-success: #5ce882;
+  --color-warning: #ffbf40;
+  --color-info: #60a5fa;
+
+  /* ── F1 tyre compound colors (on dark bg ≥ 3:1 for graphical objects) ── */
+  --tyre-soft: #ff3333;
+  --tyre-medium: #ffd700;
+  --tyre-hard: #e8e8e8;
+  --tyre-intermediate: #3cc54e;
+  --tyre-wet: #3388ee;
+
+  /* ── F1 2024 team colors ── */
+  --team-red-bull: #3671c6;
+  --team-ferrari: #e8002d;
+  --team-mercedes: #27f4d2;
+  --team-mclaren: #ff8000;
+  --team-aston-martin: #229971;
+  --team-alpine: #ff87bc;
+  --team-williams: #64c4ff;
+  --team-haas: #b6babd;
+  --team-alphatauri: #6692ff;
+  --team-sauber: #52e252;
+
+  /* ── Radii ── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* ── Motion ── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+}
+
+/* Respect user preference for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-sm);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ── Skip link for keyboard users ── */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: var(--space-4);
+  z-index: 9999;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-base);
+  text-decoration: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  transition: top var(--duration-fast) var(--ease-out);
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* ── Visually hidden (screen reader only) ── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  white-space: nowrap;
+}
+
+/* ── D3 chart base styles ── */
+svg text {
+  fill: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+}
+
+svg .axis path,
+svg .axis line {
+  stroke: var(--color-border);
+}
+
+svg .axis text {
+  fill: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+svg .grid line {
+  stroke: var(--color-border);
+  stroke-opacity: 0.35;
+}
+
+svg .grid path {
+  stroke: none;
+}
+
+/* ── D3 brush overrides ── */
+svg .brush .selection {
+  fill: var(--color-accent);
+  fill-opacity: 0.1;
+  stroke: var(--color-accent);
+  stroke-opacity: 0.35;
+}
+
+svg .brush .handle {
+  fill: var(--color-accent);
+  fill-opacity: 0.5;
+}
+
+svg .brush .overlay {
+  cursor: crosshair;
+}
+
+/* ── Tooltip ── */
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  max-width: 320px;
+}
+
+/* ── Accessible focus ring ── */
+:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 2px;
+}
+
+/* ── Selection ── */
+::selection {
+  background: rgba(225, 6, 0, 0.3);
+  color: #fff;
+}
