@@ -1,0 +1,30 @@
+# Dependencies
+frontend/node_modules/
+backend/__pycache__/
+backend/**/__pycache__/
+.pycache
+data
+documents
+# Build output
+frontend/dist/
+
+# Environment
+.env
+.env.local
+backend/venv/
+backend/.venv/
+
+# FastF1 cache (large binary files)
+backend/data/cache/*
+!backend/data/cache/.gitkeep
+backend/ff1_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
