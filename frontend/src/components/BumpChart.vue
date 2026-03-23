@@ -25,6 +25,26 @@ const chartDescription = computed(() => {
   return n ? `Position flow chart for ${n} drivers. P1 at top. Circles mark overtakes.` : 'No data loaded'
 })
 
+/** Lap is on track with a real classification position (not DNF / retired / placeholder). */
+function isValidRacePosition(p) {
+  if (p == null || Number.isNaN(Number(p))) return false
+  const n = Number(p)
+  return n >= 1
+}
+
+/**
+ * Laps in lap order until first invalid position (crash/retire): chart stops there — no P0 / P-1.
+ */
+function lapsUntilRetirement(lapsInRange) {
+  const sorted = [...lapsInRange].sort((a, b) => a.lap - b.lap)
+  const out = []
+  for (const l of sorted) {
+    if (!isValidRacePosition(l.position)) break
+    out.push(l)
+  }
+  return out
+}
+
 function draw() {
   const g = getG()
   const svg = getSvg()
@@ -41,10 +61,12 @@ function draw() {
   const fullLapExtent = d3.extent(allLaps, l => l.lap)
   const lapExtent = store.brushedLapRange || fullLapExtent
 
-  const visibleLaps = allLaps.filter(l => l.lap >= lapExtent[0] && l.lap <= lapExtent[1])
+  const visibleLaps = allLaps.filter(
+    l => l.lap >= lapExtent[0] && l.lap <= lapExtent[1] && isValidRacePosition(l.position)
+  )
   const positionValues = visibleLaps.map(l => l.position)
-  const minPos = d3.min(positionValues) || 1
-  const maxPos = d3.max(positionValues) || 20
+  const minPos = positionValues.length ? d3.min(positionValues) : 1
+  const maxPos = positionValues.length ? d3.max(positionValues) : 20
 
   const x = d3.scaleLinear().domain(lapExtent).range([0, w])
   const y = d3.scaleLinear().domain([minPos - 0.5, maxPos + 0.5]).range([0, h])
@@ -63,9 +85,10 @@ function draw() {
   const highlighted = store.highlightedDriver
 
   drivers.forEach(driver => {
-    const nonPitLaps = driver.laps.filter(
+    const inBrush = driver.laps.filter(
       l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
     )
+    const nonPitLaps = lapsUntilRetirement(inBrush)
     const dimmed = highlighted && highlighted !== driver.code
     const opacity = dimmed ? 0.15 : 0.9
 
@@ -78,6 +101,7 @@ function draw() {
       for (let i = 1; i < nonPitLaps.length; i++) {
         const prev = nonPitLaps[i - 1]
         const curr = nonPitLaps[i]
+        if (!isValidRacePosition(prev.position) || !isValidRacePosition(curr.position)) continue
         if (curr.position !== prev.position) {
           const gained = curr.position < prev.position
           g.append('circle')
@@ -115,9 +139,10 @@ function draw() {
     const simDriver = store.simulatedData.drivers?.find(d => d.code === simCode)
     if (simDriver) {
       const simColor = simDriver.color || '#fff'
-      const simLaps = simDriver.laps.filter(
+      const simInBrush = simDriver.laps.filter(
         l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
       )
+      const simLaps = lapsUntilRetirement(simInBrush)
 
       const simLine = d3.line()
         .x(d => x(d.lap)).y(d => y(d.position))
@@ -172,7 +197,7 @@ function draw() {
       let html = `<strong>Lap ${clampedLap}</strong><br/>`
       drivers.forEach(driver => {
         const lapData = driver.laps.find(l => l.lap === clampedLap && !l.isPitLap)
-        if (!lapData) return
+        if (!lapData || !isValidRacePosition(lapData.position)) return
         crosshairDots.append('circle')
           .attr('cx', x(clampedLap)).attr('cy', y(lapData.position))
           .attr('r', 4).attr('fill', driver.color)
@@ -185,7 +210,7 @@ function draw() {
         const simDriver = store.simulatedData.drivers?.find(d => d.code === simCode)
         if (simDriver) {
           const simLap = simDriver.laps.find(l => l.lap === clampedLap && !l.isPitLap)
-          if (simLap) {
+          if (simLap && isValidRacePosition(simLap.position)) {
             html += `<span style="color:${simDriver.color};font-weight:700;font-style:italic">${simCode} (sim)</span> P${simLap.position}`
             if (simLap.posP5 != null) html += ` <span style="color:var(--color-text-muted)">[P${simLap.posP5}–P${simLap.posP95}]</span>`
             html += `<br/>`
