@@ -37,8 +37,12 @@ const chartDescription = computed(() => {
   return `Race trace showing gap to leader for ${count} drivers. ${lapInfo}. Brush to zoom, hover for details.`
 })
 
+function hasFiniteGap(l) {
+  return l.gapToLeader != null && Number.isFinite(l.gapToLeader)
+}
+
 function generateUncertaintyBands(driver, scale = 1.0) {
-  const nonPitLaps = driver.laps.filter(l => !l.isPitLap && l.gapToLeader != null)
+  const nonPitLaps = driver.laps.filter(l => !l.isPitLap && hasFiniteGap(l))
   return nonPitLaps.map(l => {
     const noise = (l.tyreAge * 0.15 + l.lap * 0.04) * scale
     return {
@@ -72,14 +76,16 @@ function draw() {
     : fullLapExtent
 
   const visibleLaps = allLaps.filter(
-    l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
+    l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1] && hasFiniteGap(l)
   )
   const gapExtent = d3.extent(visibleLaps, l => l.gapToLeader)
-  const gapPadding = ((gapExtent[1] || 0) - (gapExtent[0] || 0)) * 0.08 || 1
+  const gLo = gapExtent[0] ?? 0
+  const gHi = gapExtent[1] ?? 1
+  const gapPadding = (gHi - gLo) * 0.08 || 1
 
   const x = d3.scaleLinear().domain(lapExtent).range([0, w])
   const y = d3.scaleLinear()
-    .domain([(gapExtent[0] || 0) - gapPadding, (gapExtent[1] || 0) + gapPadding])
+    .domain([gLo - gapPadding, gHi + gapPadding])
     .range([0, h])
 
   g.append('g').attr('class', 'grid')
@@ -116,7 +122,7 @@ function draw() {
   })
 
   const line = d3.line()
-    .defined(d => !d.isPitLap)
+    .defined(d => !d.isPitLap && hasFiniteGap(d))
     .x(d => x(d.lap)).y(d => y(d.gapToLeader))
     .curve(d3.curveMonotoneX)
 
@@ -132,7 +138,8 @@ function draw() {
   drivers.forEach(driver => {
     driver.pitStops.forEach(pit => {
       const lapBefore = driver.laps.find(l => l.lap === pit.lap - 1)
-      if (!lapBefore || lapBefore.lap < lapExtent[0] || lapBefore.lap > lapExtent[1]) return
+      if (!lapBefore || !hasFiniteGap(lapBefore)
+        || lapBefore.lap < lapExtent[0] || lapBefore.lap > lapExtent[1]) return
       g.append('circle')
         .attr('cx', x(lapBefore.lap)).attr('cy', y(lapBefore.gapToLeader))
         .attr('r', 5)
@@ -151,7 +158,7 @@ function draw() {
 
   drivers.forEach(driver => {
     const visible = driver.laps.filter(
-      l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
+      l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1] && hasFiniteGap(l)
     )
     const lastLap = visible[visible.length - 1]
     if (!lastLap) return
@@ -173,9 +180,14 @@ function draw() {
         l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
       )
 
-      const hasBackendBands = simLaps.some(l => l.p5 != null)
+      const hasBackendBands = simLaps.some(
+        l => hasFiniteGap(l) && l.p5 != null && Number.isFinite(l.p5)
+      )
       if (hasBackendBands) {
-        const bandData = simLaps.filter(l => l.p5 != null)
+        const bandData = simLaps.filter(
+          l => hasFiniteGap(l) && l.p5 != null && Number.isFinite(l.p5)
+            && l.p95 != null && Number.isFinite(l.p95)
+        )
 
         const simArea5_95 = d3.area()
           .x(d => x(d.lap)).y0(d => y(d.p5)).y1(d => y(d.p95))
@@ -193,7 +205,7 @@ function draw() {
       }
 
       const simLine = d3.line()
-        .defined(d => !d.isPitLap && d.gapToLeader != null)
+        .defined(d => !d.isPitLap && hasFiniteGap(d))
         .x(d => x(d.lap)).y(d => y(d.gapToLeader))
         .curve(d3.curveMonotoneX)
 
@@ -202,7 +214,7 @@ function draw() {
         .attr('stroke-width', 2.5).attr('stroke-dasharray', '6,3')
         .attr('stroke-opacity', 0.9)
 
-      const simLast = simLaps[simLaps.length - 1]
+      const simLast = [...simLaps].reverse().find((l) => hasFiniteGap(l))
       if (simLast) {
         g.append('text')
           .attr('x', x(simLast.lap) + 6).attr('y', y(simLast.gapToLeader) - 12)
@@ -235,13 +247,15 @@ function draw() {
       let html = `<strong>Lap ${clampedLap}</strong><br/>`
       drivers.forEach(driver => {
         const lapData = driver.laps.find(l => l.lap === clampedLap && !l.isPitLap)
-        if (!lapData) return
+        if (!lapData || !hasFiniteGap(lapData)) return
         crosshairDots.append('circle')
           .attr('cx', x(clampedLap)).attr('cy', y(lapData.gapToLeader))
           .attr('r', 4).attr('fill', driver.color)
           .attr('stroke', '#fff').attr('stroke-width', 1.5)
+        const posStr = lapData.position != null && Number.isFinite(lapData.position)
+          ? ` · P${lapData.position}` : ''
         html += `<span style="color:${driver.color};font-weight:700">${driver.code}</span>
-          +${lapData.gapToLeader.toFixed(1)}s · P${lapData.position}
+          +${lapData.gapToLeader.toFixed(1)}s${posStr}
           · ${lapData.compound} (age ${lapData.tyreAge})<br/>`
       })
       tooltip.show(html)

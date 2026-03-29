@@ -199,12 +199,21 @@ def build_race_trace(laps_clean: pd.DataFrame) -> pd.DataFrame:
     """
     Compute gap_to_leader by lap from cumulative lap times.
 
+    Missing lap_time_sec (common under SC / wet sessions) breaks naive cumsum and
+    mis-identifies the leader. We impute with the per-lap median across drivers,
+    then forward/back-fill within driver so cumulative race time stays comparable.
+
     Note:
     This is a simplified proxy for race gaps and may differ from official
     live timing in edge cases (pit cycles, lapped traffic, missing laps).
     """
     df = laps_clean.sort_values(["driver", "lap"]).copy()
-    df["cum_time_sec"] = df.groupby("driver")["lap_time_sec"].cumsum()
+    lap_med = df.groupby("lap", dropna=False)["lap_time_sec"].transform("median")
+    df["_lap_time_imputed"] = df["lap_time_sec"].fillna(lap_med)
+    df["_lap_time_imputed"] = (
+        df.groupby("driver", dropna=False)["_lap_time_imputed"].ffill().bfill()
+    )
+    df["cum_time_sec"] = df.groupby("driver", dropna=False)["_lap_time_imputed"].cumsum()
 
     leader = (
         df.groupby("lap", dropna=True)["cum_time_sec"]
@@ -213,7 +222,8 @@ def build_race_trace(laps_clean: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
     trace = df.merge(leader, on="lap", how="left")
-    trace["gap_to_leader"] = trace["cum_time_sec"] - trace["leader_cum_time_sec"]
+    gap = trace["cum_time_sec"] - trace["leader_cum_time_sec"]
+    trace["gap_to_leader"] = gap.clip(lower=0.0)
     return trace[["driver", "lap", "gap_to_leader"]]
 
 

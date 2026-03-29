@@ -15,6 +15,21 @@ function colorForCode(code) {
   return DRIVER_COLORS[h % DRIVER_COLORS.length]
 }
 
+/** Seconds behind leader; null / NaN / missing → no plot (do not use 0). */
+function parseGapValue(v) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  return Math.max(0, n)
+}
+
+/** Race position for charts; null if unknown / invalid (BumpChart will skip). */
+function parsePosition(v) {
+  if (v == null || v === '') return null
+  const n = Math.round(Number(v))
+  return Number.isFinite(n) && n >= 1 ? n : null
+}
+
 /**
  * Pit stops between consecutive stints (pit lap = first lap of new stint).
  */
@@ -47,7 +62,7 @@ export function racePayloadToViewModel(envelope) {
   for (const row of raceTrace) {
     const d = String(row.driver || '').toUpperCase()
     const lap = Math.round(Number(row.lap))
-    traceMap.set(`${d}-${lap}`, Number(row.gap_to_leader))
+    traceMap.set(`${d}-${lap}`, parseGapValue(row.gap_to_leader))
   }
 
   const pitEventSet = new Set()
@@ -88,8 +103,8 @@ export function racePayloadToViewModel(envelope) {
     driversMap.get(code).laps.push({
       lap,
       time_s: row.lap_time_sec != null ? Number(row.lap_time_sec) : null,
-      gapToLeader: gap != null && !Number.isNaN(gap) ? gap : 0,
-      position: Math.round(Number(row.position)) || 20,
+      gapToLeader: gap != null && Number.isFinite(gap) ? gap : null,
+      position: parsePosition(row.position),
       compound: String(row.compound || 'MEDIUM').toUpperCase(),
       tyreAge: Math.round(Number(row.tyre_age)) || 1,
       isPitLap,
@@ -131,18 +146,28 @@ export function racePayloadToViewModel(envelope) {
 export function simulateToViewModel(sim, originalDriver, modifiedStrategy) {
   const traceMap = new Map()
   for (const row of sim.simulated_trace || []) {
-    traceMap.set(Math.round(Number(row.lap)), row.simulated_gap_to_leader)
+    const lap = Math.round(Number(row.lap))
+    traceMap.set(lap, parseGapValue(row.simulated_gap_to_leader))
   }
 
   const laps = (sim.simulated_laps || []).map((row) => {
     const lap = Math.round(Number(row.lap))
-    const g = traceMap.get(lap)
     const origLap = originalDriver.laps.find((l) => l.lap === lap)
+    let gapToLeader = null
+    if (traceMap.has(lap)) {
+      gapToLeader = traceMap.get(lap)
+    } else {
+      gapToLeader =
+        origLap?.gapToLeader != null && Number.isFinite(origLap.gapToLeader)
+          ? origLap.gapToLeader
+          : null
+    }
     return {
       lap,
       time_s: row.simulated_lap_time_sec != null ? Number(row.simulated_lap_time_sec) : null,
-      gapToLeader: g != null && g !== undefined ? Number(g) : (origLap?.gapToLeader ?? 0),
-      position: origLap?.position ?? 15,
+      gapToLeader,
+      position:
+        origLap?.position != null && Number.isFinite(origLap.position) ? origLap.position : null,
       compound: String(row.compound || 'MEDIUM').toUpperCase(),
       tyreAge: Math.round(Number(row.simulated_tyre_age)) || 1,
       isPitLap: lap === sim.new_pit_lap,
