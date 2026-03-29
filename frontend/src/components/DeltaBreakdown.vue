@@ -28,9 +28,11 @@ const COMPONENTS = [
 
 function computeDeltas(driver) {
   if (!driver.laps.length) return null
-  const lastLap = driver.laps[driver.laps.length - 1]
-  const finalGap = lastLap.gapToLeader
-  if (finalGap <= 0) return null
+  const lastWithGap = [...driver.laps].reverse().find(
+    (l) => l.gapToLeader != null && Number.isFinite(l.gapToLeader)
+  )
+  const finalGap = lastWithGap?.gapToLeader
+  if (finalGap == null || finalGap <= 0) return null
 
   const numExtraPits = Math.max(0, driver.pitStops.length - 1)
   const pitLoss = numExtraPits * 2.5 + driver.pitStops.length * 0.3

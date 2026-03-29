@@ -145,6 +145,7 @@ function draw() {
       const simLaps = lapsUntilRetirement(simInBrush)
 
       const simLine = d3.line()
+        .defined(d => isValidRacePosition(d.position))
         .x(d => x(d.lap)).y(d => y(d.position))
         .curve(d3.curveMonotoneX)
 
@@ -153,18 +154,23 @@ function draw() {
         .attr('stroke-width', 2.5).attr('stroke-dasharray', '6,3')
         .attr('stroke-opacity', 0.9)
 
-      if (simLaps.some(l => l.posP5 != null)) {
+      const simBandRows = simLaps.filter(
+        l => isValidRacePosition(l.position)
+          && l.posP5 != null && Number.isFinite(l.posP5)
+          && l.posP95 != null && Number.isFinite(l.posP95)
+      )
+      if (simBandRows.length) {
         const bandArea = d3.area()
           .x(d => x(d.lap))
-          .y0(d => y(d.posP95 ?? d.position))
-          .y1(d => y(d.posP5 ?? d.position))
+          .y0(d => y(d.posP95))
+          .y1(d => y(d.posP5))
           .curve(d3.curveMonotoneX)
-        g.append('path').datum(simLaps.filter(l => l.posP5 != null))
+        g.append('path').datum(simBandRows)
           .attr('d', bandArea)
           .attr('fill', simColor).attr('fill-opacity', 0.1)
       }
 
-      const simLast = simLaps[simLaps.length - 1]
+      const simLast = [...simLaps].reverse().find((l) => isValidRacePosition(l.position))
       if (simLast) {
         g.append('text')
           .attr('x', x(simLast.lap) + 6).attr('y', y(simLast.position) - 12)
