@@ -79,8 +79,30 @@ function draw() {
     l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1] && hasFiniteGap(l)
   )
   const gapExtent = d3.extent(visibleLaps, l => l.gapToLeader)
-  const gLo = gapExtent[0] ?? 0
-  const gHi = gapExtent[1] ?? 1
+  let gLo = gapExtent[0] ?? 0
+  let gHi = gapExtent[1] ?? 1
+
+  if (store.showSimulated && store.simulatedData && store.modifiedStrategy?.driverCode) {
+    const simD = store.simulatedData.drivers?.find(
+      (d) => d.code === store.modifiedStrategy.driverCode
+    )
+    if (simD) {
+      const simVis = simD.laps.filter(
+        (l) => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
+      )
+      const band = []
+      for (const l of simVis) {
+        if (l.p5 != null && Number.isFinite(l.p5)) band.push(l.p5)
+        if (l.p95 != null && Number.isFinite(l.p95)) band.push(l.p95)
+        if (hasFiniteGap(l)) band.push(l.gapToLeader)
+      }
+      if (band.length) {
+        gLo = Math.min(gLo, d3.min(band))
+        gHi = Math.max(gHi, d3.max(band))
+      }
+    }
+  }
+
   const gapPadding = (gHi - gLo) * 0.08 || 1
 
   const x = d3.scaleLinear().domain(lapExtent).range([0, w])

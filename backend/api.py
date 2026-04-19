@@ -50,6 +50,11 @@ try:
 except ImportError:
     from json_sanitize import sanitize_for_json
 
+try:
+    from .strategy_model import build_strategy_viz_payload
+except ImportError:
+    from strategy_model import build_strategy_viz_payload
+
 # Project root = parent of backend/
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CACHE_JSON_DIR = REPO_ROOT / "data" / "cache"
@@ -105,6 +110,34 @@ class SimulateRequest(BaseModel):
         default=None,
         gt=0,
         description="Extra seconds on pit lap (optional, default ~22)",
+    )
+    monte_carlo_samples: int = Field(
+        default=100,
+        ge=1,
+        le=500,
+        description="1 = deterministic; 2+ = Monte Carlo over pit loss / deg noise (median + p5–p95)",
+    )
+    random_seed: Optional[int] = Field(
+        default=None,
+        description="Optional RNG seed for reproducible Monte Carlo draws",
+    )
+    use_ml: bool = Field(
+        default=True,
+        description="Use hybrid ML-assisted rollout when model artifacts are available.",
+    )
+
+
+class StrategyVizRequest(BaseModel):
+    """Pit-window grid + delta breakdown from raw race tables (same model as UI)."""
+
+    raw_race: Dict[str, Any] = Field(
+        ...,
+        description="Must include laps_clean, stints_clean, race_trace",
+    )
+    drivers: List[str] = Field(..., min_length=1, max_length=40)
+    selected_pit_laps: Optional[Dict[str, int]] = Field(
+        default=None,
+        description="Optional selected what-if pit lap by driver code, e.g. {\"NOR\": 35}",
     )
 
 
@@ -266,7 +299,26 @@ def api_race_post(body: RaceLoadRequest):
     }
 
 
-# --- Step 3: what-if simulation (slider lap + driver) ---
+# --- Step 3: strategy viz (pit window + delta breakdown, shared model) ---
+
+
+@app.post("/api/strategy-viz")
+def api_strategy_viz(body: StrategyVizRequest):
+    """
+    Pit-window heatmap and simulator-based delta breakdown per driver.
+    """
+    try:
+        out = build_strategy_viz_payload(
+            body.raw_race,
+            body.drivers,
+            selected_pit_laps=body.selected_pit_laps,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return sanitize_for_json(out)
+
+
+# --- Step 4: what-if simulation (slider lap + driver) ---
 
 
 @app.post("/api/simulate")
@@ -285,6 +337,9 @@ def api_simulate(body: SimulateRequest):
             new_pit_lap=body.new_pit_lap,
             new_compound=body.new_compound,
             pit_loss_sec=body.pit_loss_sec,
+            monte_carlo_samples=body.monte_carlo_samples,
+            random_seed=body.random_seed,
+            use_ml=body.use_ml,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

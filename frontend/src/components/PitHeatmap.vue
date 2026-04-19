@@ -15,73 +15,25 @@ const { width, height, getG, getSvg, onDraw, redraw } = useChart(container, marg
 onDraw(draw)
 
 watch(
-  () => [store.activeDrivers, store.hoveredLap, store.brushedLapRange, store.highlightedDriver, store.simulatedData, store.showSimulated],
+  () => [store.activeDrivers, store.strategyViz, store.hoveredLap, store.brushedLapRange, store.highlightedDriver, store.simulatedData, store.showSimulated],
   () => { redraw() },
   { deep: true }
 )
 
-function computePitGainLoss(driver, totalLaps) {
-  const grid = []
-  const pitLapSet = new Set(driver.pitStops.map(p => p.lap))
-  const cleanLaps = driver.laps.filter(
-    l => l.time_s != null && !pitLapSet.has(l.lap) && l.time_s > 60 && l.time_s < 200
-  )
-  if (cleanLaps.length < 5) return grid
-
-  // duration_s is already the pit time loss (pit_lap - median_clean)
-  const avgPitLoss = driver.pitStops.length > 0
-    ? d3.mean(driver.pitStops, p => p.duration_s)
-    : 22
-
-  // Estimate degradation rate per compound from actual stint data
-  const stints = []
-  let curStint = []
-  for (const lap of cleanLaps) {
-    if (curStint.length > 0) {
-      const prev = curStint[curStint.length - 1]
-      if (lap.compound !== prev.compound || lap.tyreAge <= prev.tyreAge) {
-        if (curStint.length >= 3) stints.push([...curStint])
-        curStint = []
-      }
+/** Pit-window cells from ``POST /api/strategy-viz`` (same model as delta breakdown). */
+function pitWindowCellsForDrivers(drivers) {
+  const pw = store.strategyViz?.pit_window
+  if (!pw) return []
+  const out = []
+  for (const d of drivers) {
+    const key = d.code?.toUpperCase?.() || String(d.code)
+    const rows = pw[key] || pw[d.code]
+    if (!rows?.length) continue
+    for (const cell of rows) {
+      out.push({ lap: cell.lap, driver: d.code, value: cell.value })
     }
-    curStint.push(lap)
   }
-  if (curStint.length >= 3) stints.push(curStint)
-
-  const compDeg = {}
-  for (const stint of stints) {
-    const comp = stint[0].compound
-    const ages = stint.map(l => l.tyreAge)
-    const times = stint.map(l => l.time_s)
-    const meanA = d3.mean(ages)
-    const meanT = d3.mean(times)
-    const num = d3.sum(ages.map((a, i) => (a - meanA) * (times[i] - meanT)))
-    const den = d3.sum(ages.map(a => (a - meanA) ** 2))
-    const slope = den > 0 ? Math.max(0, num / den) : 0
-    if (!compDeg[comp]) compDeg[comp] = []
-    compDeg[comp].push(slope)
-  }
-
-  const degRate = {}
-  for (const [comp, rates] of Object.entries(compDeg)) {
-    degRate[comp] = d3.median(rates)
-  }
-  const fallbackDeg = d3.median(Object.values(degRate)) || 0.04
-
-  for (let lapNum = 3; lapNum <= totalLaps - 3; lapNum++) {
-    const lapData = cleanLaps.find(l => l.lap === lapNum)
-    if (!lapData) continue
-
-    const age = lapData.tyreAge
-    const deg = degRate[lapData.compound] || fallbackDeg
-    const remain = Math.min(30, totalLaps - lapNum)
-
-    // Time saved = deg * current_age * remaining_laps
-    // (difference between continuing on worn tyres vs fresh tyres)
-    const net = deg * age * remain - avgPitLoss
-    grid.push({ lap: lapNum, driver: driver.code, value: net })
-  }
-  return grid
+  return out
 }
 
 function draw() {
@@ -97,8 +49,7 @@ function draw() {
   const drivers = store.activeDrivers
   if (!drivers.length) return
 
-  const totalLaps = store.totalLaps || d3.max(drivers.flatMap(d => d.laps), l => l.lap)
-  const allCells = drivers.flatMap(d => computePitGainLoss(d, totalLaps))
+  const allCells = pitWindowCellsForDrivers(drivers)
   if (!allCells.length) return
 
   const brushRange = store.brushedLapRange
@@ -121,9 +72,11 @@ function draw() {
   const yBand = d3.scaleBand()
     .domain(driverCodes).range([0, h]).padding(0.15)
 
-  const maxAbs = d3.max(filteredCells, c => Math.abs(c.value)) || 1
+  const maxAbsRaw = d3.max(filteredCells, c => Math.abs(c.value)) || 0
+  const maxAbs = Math.max(1, Math.min(6, maxAbsRaw))
   const colorScale = d3.scaleDiverging()
-    .domain([-maxAbs, 0, maxAbs]).interpolator(d3.interpolateRdYlGn)
+    .domain([-maxAbs, 0, maxAbs])
+    .interpolator(d3.interpolateRgbBasis(['#c6423a', '#f6f1df', '#2f8f4e']))
 
   g.append('g').attr('class', 'axis')
     .attr('transform', `translate(${cellW / 2},${h})`)
@@ -148,15 +101,17 @@ function draw() {
 
     const dimmed = highlighted && highlighted !== cell.driver
 
+    const valueClamped = Math.max(-maxAbs, Math.min(maxAbs, cell.value))
     g.append('rect')
       .attr('x', cx).attr('y', cy)
       .attr('width', cellW).attr('height', yBand.bandwidth())
-      .attr('fill', colorScale(cell.value)).attr('rx', 1)
+      .attr('fill', colorScale(valueClamped)).attr('rx', 1)
       .attr('opacity', dimmed ? 0.15 : 1)
       .on('mouseover', (event) => {
         const sign = cell.value >= 0 ? '+' : ''
+        const label = cell.value >= 0 ? 'Pit gain' : 'Pit loss'
         tooltip.show(`<strong>${cell.driver}</strong> Lap ${cell.lap}<br/>
-          Pit gain: <span style="color:${cell.value >= 0 ? 'var(--color-success)' : 'var(--color-danger)'}; font-weight:700">${sign}${cell.value.toFixed(1)}s</span>`)
+          ${label}: <span style="color:${cell.value >= 0 ? 'var(--color-success)' : 'var(--color-danger)'}; font-weight:700">${sign}${cell.value.toFixed(1)}s</span>`)
         tooltip.move(event)
         store.setHighlightedDriver(cell.driver)
       })
@@ -238,6 +193,7 @@ function draw() {
     <h3 class="panel-title">Pit Window <span class="panel-title__sub">Heatmap</span></h3>
     <div ref="container" class="chart-container" role="figure" aria-label="Pit window gain/loss heatmap">
       <p class="placeholder" v-if="!store.raceData">Select a race to view pit windows</p>
+      <p class="placeholder" v-else-if="store.raceData && !store.strategyViz">Loading strategy model…</p>
     </div>
   </div>
 </template>
