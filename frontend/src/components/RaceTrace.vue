@@ -23,7 +23,7 @@ const { width, height, getG, getSvg, onDraw, redraw } = useChart(container, marg
 onDraw(draw)
 
 watch(
-  () => [store.activeDrivers, store.hoveredLap, store.brushedLapRange, store.simulatedData, store.showSimulated],
+  () => [store.activeDrivers, store.hoveredLap, store.brushedLapRange, store.savedSimulations, store.simulatedData, store.showSimulated],
   () => { redraw() },
   { deep: true }
 )
@@ -41,18 +41,12 @@ function hasFiniteGap(l) {
   return l.gapToLeader != null && Number.isFinite(l.gapToLeader)
 }
 
-function generateUncertaintyBands(driver, scale = 1.0) {
-  const nonPitLaps = driver.laps.filter(l => !l.isPitLap && hasFiniteGap(l))
-  return nonPitLaps.map(l => {
-    const noise = (l.tyreAge * 0.15 + l.lap * 0.04) * scale
-    return {
-      lap: l.lap,
-      gap: l.gapToLeader,
-      p5: l.gapToLeader + noise * 1.8,
-      p25: l.gapToLeader + noise * 0.8,
-      p75: Math.max(0, l.gapToLeader - noise * 0.8),
-      p95: Math.max(0, l.gapToLeader - noise * 1.8),
-    }
+/** Backend may echo p5/p95 even when Monte Carlo is off (all equal to median). */
+function hasMeaningfulGapBands(laps) {
+  return laps.some((l) => {
+    if (!hasFiniteGap(l)) return false
+    if (l.p5 == null || l.p95 == null || !Number.isFinite(l.p5) || !Number.isFinite(l.p95)) return false
+    return Math.abs(l.p95 - l.p5) > 1e-3
   })
 }
 
@@ -82,19 +76,21 @@ function draw() {
   let gLo = gapExtent[0] ?? 0
   let gHi = gapExtent[1] ?? 1
 
-  if (store.showSimulated && store.simulatedData && store.modifiedStrategy?.driverCode) {
-    const simD = store.simulatedData.drivers?.find(
-      (d) => d.code === store.modifiedStrategy.driverCode
-    )
-    if (simD) {
+  if (store.showSimulated && store.simulatedData?.drivers?.length) {
+    for (const simD of store.simulatedData.drivers) {
       const simVis = simD.laps.filter(
         (l) => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
       )
       const band = []
       for (const l of simVis) {
-        if (l.p5 != null && Number.isFinite(l.p5)) band.push(l.p5)
-        if (l.p95 != null && Number.isFinite(l.p95)) band.push(l.p95)
         if (hasFiniteGap(l)) band.push(l.gapToLeader)
+        if (
+          l.p5 != null && l.p95 != null
+          && Number.isFinite(l.p5) && Number.isFinite(l.p95)
+          && Math.abs(l.p95 - l.p5) > 1e-3
+        ) {
+          band.push(l.p5, l.p95)
+        }
       }
       if (band.length) {
         gLo = Math.min(gLo, d3.min(band))
@@ -125,23 +121,6 @@ function draw() {
     .style('font-size', 'var(--text-xs)').style('fill', 'var(--color-text-secondary)')
     .style('font-family', 'var(--font-display)').style('font-weight', '600')
     .text('Gap to Leader (s)')
-
-  const area5_95 = d3.area()
-    .x(d => x(d.lap)).y0(d => y(d.p5)).y1(d => y(d.p95))
-    .curve(d3.curveMonotoneX)
-  const area25_75 = d3.area()
-    .x(d => x(d.lap)).y0(d => y(d.p25)).y1(d => y(d.p75))
-    .curve(d3.curveMonotoneX)
-
-  drivers.forEach(driver => {
-    const bands = generateUncertaintyBands(driver)
-    const filtered = bands.filter(b => b.lap >= lapExtent[0] && b.lap <= lapExtent[1])
-    if (filtered.length < 2) return
-    g.append('path').datum(filtered).attr('d', area5_95)
-      .attr('fill', driver.color).attr('fill-opacity', 0.06)
-    g.append('path').datum(filtered).attr('d', area25_75)
-      .attr('fill', driver.color).attr('fill-opacity', 0.12)
-  })
 
   const line = d3.line()
     .defined(d => !d.isPitLap && hasFiniteGap(d))
@@ -193,19 +172,15 @@ function draw() {
       .text(driver.code)
   })
 
-  if (store.showSimulated && store.simulatedData) {
-    const simDriverCode = store.modifiedStrategy?.driverCode
-    const simDriver = store.simulatedData.drivers?.find(d => d.code === simDriverCode)
-    if (simDriver) {
+  if (store.showSimulated && store.simulatedData?.drivers?.length) {
+    store.simulatedData.drivers.forEach((simDriver, simIdx) => {
+      const simDriverCode = simDriver.code
       const simColor = simDriver.color || '#fff'
       const simLaps = simDriver.laps.filter(
         l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
       )
 
-      const hasBackendBands = simLaps.some(
-        l => hasFiniteGap(l) && l.p5 != null && Number.isFinite(l.p5)
-      )
-      if (hasBackendBands) {
+      if (hasMeaningfulGapBands(simLaps)) {
         const bandData = simLaps.filter(
           l => hasFiniteGap(l) && l.p5 != null && Number.isFinite(l.p5)
             && l.p95 != null && Number.isFinite(l.p95)
@@ -238,15 +213,16 @@ function draw() {
 
       const simLast = [...simLaps].reverse().find((l) => hasFiniteGap(l))
       if (simLast) {
+        const labelDy = -12 - simIdx * 14
         g.append('text')
-          .attr('x', x(simLast.lap) + 6).attr('y', y(simLast.gapToLeader) - 12)
+          .attr('x', x(simLast.lap) + 6).attr('y', y(simLast.gapToLeader) + labelDy)
           .attr('dy', '0.35em')
           .style('font-size', 'var(--text-xs)').style('font-weight', '700')
           .style('font-family', 'var(--font-display)')
           .style('fill', simColor).style('font-style', 'italic')
           .text(`${simDriverCode} (sim)`)
       }
-    }
+    })
   }
 
   const crosshairLine = g.append('line')
@@ -280,6 +256,20 @@ function draw() {
           +${lapData.gapToLeader.toFixed(1)}s${posStr}
           · ${lapData.compound} (age ${lapData.tyreAge})<br/>`
       })
+      if (store.showSimulated && store.simulatedData?.drivers?.length) {
+        for (const simD of store.simulatedData.drivers) {
+          const simLap = simD.laps.find((l) => l.lap === clampedLap && !l.isPitLap)
+          if (!simLap || !hasFiniteGap(simLap)) continue
+          const c = simD.color || '#fff'
+          crosshairDots.append('circle')
+            .attr('cx', x(clampedLap)).attr('cy', y(simLap.gapToLeader))
+            .attr('r', 4).attr('fill', c)
+            .attr('stroke', '#fff').attr('stroke-width', 1.5)
+            .attr('stroke-dasharray', '2,2')
+          html += `<span style="color:${c};font-weight:700;font-style:italic">${simD.code} (sim)</span>
+            +${simLap.gapToLeader.toFixed(1)}s<br/>`
+        }
+      }
       tooltip.show(html)
       tooltip.move(event)
     })

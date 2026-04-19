@@ -15,7 +15,7 @@ const { width, height, getG, getSvg, onDraw, redraw } = useChart(container, marg
 onDraw(draw)
 
 watch(
-  () => [store.activeDrivers, store.hoveredLap, store.brushedLapRange, store.highlightedDriver, store.simulatedData, store.showSimulated],
+  () => [store.activeDrivers, store.hoveredLap, store.brushedLapRange, store.highlightedDriver, store.savedSimulations, store.simulatedData, store.showSimulated],
   () => { redraw() },
   { deep: true }
 )
@@ -134,10 +134,9 @@ function draw() {
     }
   })
 
-  if (store.showSimulated && store.simulatedData) {
-    const simCode = store.modifiedStrategy?.driverCode
-    const simDriver = store.simulatedData.drivers?.find(d => d.code === simCode)
-    if (simDriver) {
+  if (store.showSimulated && store.simulatedData?.drivers?.length) {
+    store.simulatedData.drivers.forEach((simDriver, simIdx) => {
+      const simCode = simDriver.code
       const simColor = simDriver.color || '#fff'
       const simInBrush = simDriver.laps.filter(
         l => !l.isPitLap && l.lap >= lapExtent[0] && l.lap <= lapExtent[1]
@@ -158,6 +157,7 @@ function draw() {
         l => isValidRacePosition(l.position)
           && l.posP5 != null && Number.isFinite(l.posP5)
           && l.posP95 != null && Number.isFinite(l.posP95)
+          && Math.abs(l.posP95 - l.posP5) > 1e-3
       )
       if (simBandRows.length) {
         const bandArea = d3.area()
@@ -172,15 +172,16 @@ function draw() {
 
       const simLast = [...simLaps].reverse().find((l) => isValidRacePosition(l.position))
       if (simLast) {
+        const labelDy = -12 - simIdx * 14
         g.append('text')
-          .attr('x', x(simLast.lap) + 6).attr('y', y(simLast.position) - 12)
+          .attr('x', x(simLast.lap) + 6).attr('y', y(simLast.position) + labelDy)
           .attr('dy', '0.35em')
           .style('font-size', 'var(--text-xs)').style('font-weight', '700')
           .style('font-family', 'var(--font-display)')
           .style('fill', simColor).style('font-style', 'italic')
           .text(`${simCode} (sim)`)
       }
-    }
+    })
   }
 
   const crosshairLine = g.append('line')
@@ -211,12 +212,11 @@ function draw() {
         html += `<span style="color:${driver.color};font-weight:700">${driver.code}</span> P${lapData.position}<br/>`
       })
 
-      if (store.showSimulated && store.simulatedData) {
-        const simCode = store.modifiedStrategy?.driverCode
-        const simDriver = store.simulatedData.drivers?.find(d => d.code === simCode)
-        if (simDriver) {
+      if (store.showSimulated && store.simulatedData?.drivers?.length) {
+        for (const simDriver of store.simulatedData.drivers) {
           const simLap = simDriver.laps.find(l => l.lap === clampedLap && !l.isPitLap)
           if (simLap && isValidRacePosition(simLap.position)) {
+            const simCode = simDriver.code
             html += `<span style="color:${simDriver.color};font-weight:700;font-style:italic">${simCode} (sim)</span> P${simLap.position}`
             if (simLap.posP5 != null) html += ` <span style="color:var(--color-text-muted)">[P${simLap.posP5}–P${simLap.posP95}]</span>`
             html += `<br/>`

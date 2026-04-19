@@ -184,18 +184,56 @@ export function racePayloadToViewModel(envelope) {
  * @param {object} modifiedStrategy - { driverCode, pitStops }
  * @param {object[]|null} allDrivers - full race field for simulated position ranks; omit to keep actual positions
  */
+/**
+ * Gap percentiles for simulated_gap_to_leader (seconds). Sources: simulated_trace (canonical)
+ * or per-lap fields on simulated_laps (simulated_gap_p05…p95 from POST /api/simulate).
+ */
+function gapPercentilesFromTraceRow(row) {
+  return {
+    gap: rawGap(row.simulated_gap_to_leader),
+    p5: rawGap(row.p5 ?? row.simulated_gap_p05),
+    p25: rawGap(row.p25 ?? row.simulated_gap_p25),
+    p75: rawGap(row.p75 ?? row.simulated_gap_p75),
+    p95: rawGap(row.p95 ?? row.simulated_gap_p95),
+  }
+}
+
+function gapPercentilesFromLapRow(row) {
+  return {
+    gap: null,
+    p5: rawGap(row.p5 ?? row.simulated_gap_p05),
+    p25: rawGap(row.p25 ?? row.simulated_gap_p25),
+    p75: rawGap(row.p75 ?? row.simulated_gap_p75),
+    p95: rawGap(row.p95 ?? row.simulated_gap_p95),
+  }
+}
+
 export function simulateToViewModel(sim, originalDriver, modifiedStrategy, allDrivers = null) {
   /** @type {Map<number, { gap: number | null, p5?: null, p25?: null, p75?: null, p95?: null }>} */
   const traceMeta = new Map()
   for (const row of sim.simulated_trace || []) {
     const lap = Math.round(Number(row.lap))
-    traceMeta.set(lap, {
-      gap: rawGap(row.simulated_gap_to_leader),
-      p5: rawGap(row.p5),
-      p25: rawGap(row.p25),
-      p75: rawGap(row.p75),
-      p95: rawGap(row.p95),
-    })
+    traceMeta.set(lap, gapPercentilesFromTraceRow(row))
+  }
+  for (const row of sim.simulated_laps || []) {
+    const lap = Math.round(Number(row.lap))
+    const fromLap = gapPercentilesFromLapRow(row)
+    const prev = traceMeta.get(lap)
+    if (!prev) {
+      traceMeta.set(lap, {
+        gap: fromLap.gap,
+        p5: fromLap.p5,
+        p25: fromLap.p25,
+        p75: fromLap.p75,
+        p95: fromLap.p95,
+      })
+      continue
+    }
+    const merged = { ...prev }
+    for (const k of ['p5', 'p25', 'p75', 'p95']) {
+      if (merged[k] == null && fromLap[k] != null) merged[k] = fromLap[k]
+    }
+    traceMeta.set(lap, merged)
   }
 
   /** @type {Map<number, number>} */
@@ -257,6 +295,8 @@ export function simulateToViewModel(sim, originalDriver, modifiedStrategy, allDr
     color: originalDriver.color,
     laps,
     pitStops,
+    monteCarloSamples: Number(sim.monte_carlo_samples) || 1,
+    hasSimulatedGapUncertainty: Boolean(sim.has_simulated_gap_uncertainty),
   }
 }
 

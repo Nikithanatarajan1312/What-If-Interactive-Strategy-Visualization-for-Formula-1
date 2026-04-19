@@ -30,7 +30,7 @@ watch(
   [
     () => store.activeDrivers,
     () => store.strategyViz,
-    () => store.simDelta,
+    () => store.savedSimulations,
     () => store.showSimulated,
     () => store.simulatedData,
   ],
@@ -108,7 +108,6 @@ function draw() {
   if (!drivers.length) return
 
   const showSim = store.showSimulated && store.simulatedData
-  const simCode = store.modifiedStrategy?.driverCode
   const db = store.strategyViz?.delta_breakdown
 
   const deltas = drivers
@@ -125,20 +124,20 @@ function draw() {
     .filter(Boolean)
 
   let simDeltas = []
-  if (showSim && simCode && store.simDelta?.code === simCode) {
-    const simDriver = store.simulatedData.drivers?.find((d) => d.code === simCode)
-    const sd = store.simDelta
-    if (simDriver && sd?.components) {
-      simDeltas = [
-        {
-          driver: `${simCode} (sim)`,
-          color: simDriver.color,
-          components: sd.components,
-          total: sd.total,
-          isSim: true,
-          origCode: simCode,
-        },
-      ]
+  if (showSim && store.simulatedData?.drivers?.length) {
+    const saved = store.savedSimulations || {}
+    for (const simDriver of store.simulatedData.drivers) {
+      const code = simDriver.code
+      const sd = saved[code]?.simDelta
+      if (!sd?.components) continue
+      simDeltas.push({
+        driver: `${code} (sim)`,
+        color: simDriver.color,
+        components: sd.components,
+        total: sd.total,
+        isSim: true,
+        origCode: code,
+      })
     }
   }
 

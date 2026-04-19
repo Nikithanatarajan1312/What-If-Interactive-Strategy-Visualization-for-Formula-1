@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="How to use the What If? F1 strategy dashboard: workflow, what the simulator considers, charts, and interpretation."
+    />
+    <title>How to use the dashboard — What If?</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #0d0f14;
+        --surface: #151720;
+        --border: #2c3040;
+        --text: #e8eaef;
+        --muted: #8b90a0;
+        --accent: #e10600;
+        --max: 42rem;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Barlow', system-ui, sans-serif;
+        font-size: 0.9375rem;
+        line-height: 1.55;
+        font-weight: 400;
+      }
+      .wrap {
+        max-width: var(--max);
+        margin: 0 auto;
+        padding: 2rem 1.25rem 3rem;
+      }
+      header {
+        border-bottom: 2px solid var(--accent);
+        padding-bottom: 1rem;
+        margin-bottom: 1.5rem;
+      }
+      h1 {
+        font-family: 'Titillium Web', sans-serif;
+        font-size: 1.35rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin: 0 0 0.5rem;
+      }
+      .lede {
+        margin: 0 0 0.65rem;
+        color: var(--text);
+        font-size: 0.9375rem;
+        line-height: 1.55;
+      }
+      .lede:last-child {
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 0.875rem;
+        line-height: 1.5;
+      }
+      .section-title {
+        font-family: 'Titillium Web', sans-serif;
+        font-size: 0.8125rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 1.75rem 0 0.65rem;
+      }
+      .section-title:first-of-type {
+        margin-top: 0;
+      }
+      section {
+        margin-bottom: 1rem;
+        padding: 1rem 1rem 1.1rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+      section.workflow {
+        padding: 1.1rem 1rem 1.15rem;
+      }
+      h2 {
+        font-family: 'Titillium Web', sans-serif;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text);
+        margin: 0 0 0.5rem;
+      }
+      .shows {
+        margin: 0 0 0.65rem;
+        color: var(--text);
+      }
+      .hint {
+        font-family: 'Titillium Web', sans-serif;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0.65rem 0 0.3rem;
+      }
+      .hint:first-of-type {
+        margin-top: 0;
+      }
+      ul {
+        margin: 0;
+        padding-left: 1.15rem;
+        color: var(--text);
+      }
+      li {
+        margin-bottom: 0.35rem;
+      }
+      li:last-child {
+        margin-bottom: 0;
+      }
+      ol.workflow-steps {
+        margin: 0;
+        padding-left: 1.25rem;
+      }
+      ol.workflow-steps li {
+        margin-bottom: 0.45rem;
+        padding-left: 0.15rem;
+      }
+      ol.workflow-steps li:last-child {
+        margin-bottom: 0;
+      }
+      footer {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+      }
+      footer a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      footer a:hover {
+        text-decoration: underline;
+      }
+      .note {
+        font-size: 0.8125rem;
+        color: var(--muted);
+        margin: 0 0 0.75rem;
+        line-height: 1.5;
+      }
+      .note:last-of-type {
+        margin-bottom: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>How to use the dashboard</h1>
+        <p class="lede">
+          This workspace lets you replay a Grand Prix with a <strong>what-if pit strategy</strong> and see how the gap,
+          positions, and end-of-race time might change—side by side with the real race trace.
+        </p>
+        <p class="lede">
+          Use it when you want to ask: “If this driver had stopped earlier or later, would they have been closer to
+          the leader at the end?” or “Did that extra stop cost time overall?”
+        </p>
+      </header>
+
+      <p class="section-title">Workflow</p>
+      <section class="workflow" aria-labelledby="workflow-heading">
+        <h2 id="workflow-heading">How to use the dashboard</h2>
+        <ol class="workflow-steps">
+          <li>Pick a <strong>race</strong> and the <strong>driver</strong> you want to experiment with (from the controls at the top).</li>
+          <li>In the <strong>stint bar</strong>, drag that driver’s pit markers to move stops to new laps—this is your edited strategy.</li>
+          <li>Run <strong>Simulate</strong> after editing, then use <strong>Show Simulated</strong> to overlay the simulator run on the charts.</li>
+          <li>
+            <strong>Compare</strong> the race trace, pit window heatmap, and delta breakdown to the baseline run: you’re looking for
+            a better or worse gap at the flag and clearer timing trade-offs.
+          </li>
+          <li>
+            Read <strong>gain/loss</strong> in the pit window and the <strong>signed seconds</strong> in the delta breakdown as relative
+            improvements or costs—not as exact broadcast timing.
+          </li>
+        </ol>
+      </section>
+
+      <p class="section-title">Simulation</p>
+      <section aria-labelledby="sim-factors-h">
+        <h2 id="sim-factors-h">What the simulator considers</h2>
+        <p class="shows">
+          When you move a pit stop, the app rebuilds a <strong>virtual stint plan</strong>—which compound you’re on each lap and
+          how old the tyres are—then rolls the race forward by adjusting lap times vs the real race. Here’s what feeds that:
+        </p>
+        <ul>
+          <li>
+            <strong>Tyre compound and tyre age</strong> — After your edit, each lap knows the simulated compound and how many laps
+            that set has done. That drives how pace differs from what actually happened on the same lap.
+          </li>
+          <li>
+            <strong>Pit-stop time cost</strong> — Extra time lost on in-lap / stop / out-lap is estimated from the race data (with
+            sensible bounds). Optional runs can add a bit of random spread around that.
+          </li>
+          <li>
+            <strong>Pace vs rubber state</strong> — Small adjustments compare simulated vs actual tyre age and compound (for example
+            fresher softs vs older mediums). When enabled, a <strong>pace helper</strong> trained on similar laps can refine that
+            delta.
+          </li>
+          <li>
+            <strong>Traffic and rejoin</strong> — Uses gaps to cars ahead and behind from the trace so tight packs can add a short
+            rejoin penalty right after a stop.
+          </li>
+          <li>
+            <strong>Random variation</strong> — If the backend runs multiple Monte Carlo samples, results summarize the spread
+            (median and band)—useful to see uncertainty, not a single magic number.
+          </li>
+        </ul>
+        <p class="shows" style="margin-top: 0.75rem; color: var(--muted); font-size: 0.875rem">
+          Not modeled as full physics: weather changes, safety cars, and blue flags are not replayed—only the strategy swap and the
+          factors above shape the what-if curve.
+        </p>
+      </section>
+
+      <p class="section-title">Chart guide</p>
+
+      <section aria-labelledby="race-trace-h">
+        <h2 id="race-trace-h">Race trace</h2>
+        <p class="shows">Shows each selected driver’s <strong>gap to the race leader</strong> on every lap.</p>
+        <p class="hint">Use it to</p>
+        <ul>
+          <li>See whether your strategy helps a driver <strong>close on the leader</strong> or <strong>drop back</strong> after a stop.</li>
+          <li>Overlay <strong>simulated vs actual</strong> when simulation is on, and compare the line at the end of the race.</li>
+        </ul>
+        <p class="hint">Look for</p>
+        <ul>
+          <li>Sharp steps at <strong>pit laps</strong>—undercuts and out-laps often show as a jump or dip in gap.</li>
+          <li><strong>Recovery</strong> on fresh tyres: the line flattening or trending back toward the leader.</li>
+          <li>Whether the <strong>simulated trace finishes higher or lower</strong> than before (closer or farther from the leader).</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="position-h">
+        <h2 id="position-h">Position flow</h2>
+        <p class="shows">Shows <strong>race position</strong> (P1, P2, …) for each driver over laps.</p>
+        <p class="hint">Use it to</p>
+        <ul>
+          <li>Follow <strong>who passed whom</strong> and when position changes line up with pit stops or battles.</li>
+          <li>Connect <strong>strategy changes</strong> in the stint bar to real field position—not just gap to the leader.</li>
+        </ul>
+        <p class="hint">Look for</p>
+        <ul>
+          <li>Lines <strong>crossing</strong> when positions swap; big vertical moves after stops or safety-car bunching.</li>
+          <li>Whether your driver’s line <strong>ends higher or lower</strong> in the order when you simulate a new strategy.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="stint-h">
+        <h2 id="stint-h">Stint bar / stint history</h2>
+        <p class="shows">Shows each driver’s <strong>tyre compound</strong> and <strong>stint length</strong> in laps, end to end.</p>
+        <p class="hint">Use it to</p>
+        <ul>
+          <li><strong>Edit strategy</strong>: drag pit stop handles to change which lap a stop happens on.</li>
+          <li>See at a glance how many stints and which compounds your what-if plan uses compared to the original race.</li>
+        </ul>
+        <p class="hint">Look for</p>
+        <ul>
+          <li>The <strong>highlighted / modified</strong> row when you’ve changed that driver’s stops.</li>
+          <li>Longer or shorter colour blocks when you move a stop—those blocks are the stints the simulator will run.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="heatmap-h">
+        <h2 id="heatmap-h">Pit window heatmap</h2>
+        <p class="shows">Shows estimated <strong>time gained or lost</strong> from pitting in a window of laps around each candidate stop, relative to a baseline.</p>
+        <p class="hint">Use it to</p>
+        <ul>
+          <li>Spot <strong>favourable windows</strong> (greener) where an extra stop or earlier stop might pay off.</li>
+          <li>Compare <strong>before and after</strong> you change the stint plan—cells update with the simulation.</li>
+        </ul>
+        <p class="hint">Look for</p>
+        <ul>
+          <li>Clusters of strong positive or negative values along the lap axis—that’s where timing sensitivity is highest.</li>
+          <li>It does <strong>not</strong> show race order; it’s a timing map only.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="delta-h">
+        <h2 id="delta-h">Delta breakdown</h2>
+        <p class="shows">
+          With simulation on, splits the driver’s <strong>gap vs actual at the finish</strong> into parts—pit timing, tyre/pace,
+          traffic/rejoin, and <strong>net</strong>.
+        </p>
+        <p class="hint">Use it to</p>
+        <ul>
+          <li>See <strong>which factors</strong> pushed the simulated run toward or away from the real result at the flag.</li>
+          <li>Read the <strong>net bar</strong> as the overall signed gap vs actual; factor bars show how much each piece contributed.</li>
+        </ul>
+        <p class="hint">Look for</p>
+        <ul>
+          <li>Bars to the <strong>right</strong> of centre (positive) vs <strong>left</strong> (negative)—sign convention matches the axis label.</li>
+          <li>Whether <strong>net</strong> lines up with what you saw in the race trace at the last lap.</li>
+        </ul>
+      </section>
+
+      <footer>
+        <p class="note">
+          <strong>About the numbers:</strong> Charts update from the <strong>strategy simulator</strong> in this app. They are built for
+          <strong>comparison</strong> between baseline and what-if runs and for <strong>timing insight</strong>—not for predicting exact
+          live TV gaps or real-world lap times.
+        </p>
+        <p class="note">Hover charts for extra detail where available.</p>
+        <p style="margin-top: 0.85rem"><a href="/">← Back to the app</a></p>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -15,7 +15,7 @@ const { width, height, getG, getSvg, onDraw, redraw } = useChart(container, marg
 onDraw(draw)
 
 watch(
-  () => [store.activeDrivers, store.strategyViz, store.hoveredLap, store.brushedLapRange, store.highlightedDriver, store.simulatedData, store.showSimulated],
+  () => [store.activeDrivers, store.strategyViz, store.hoveredLap, store.brushedLapRange, store.highlightedDriver, store.savedSimulations, store.simulatedData, store.showSimulated],
   () => { redraw() },
   { deep: true }
 )
@@ -122,12 +122,10 @@ function draw() {
       })
   })
 
-  if (store.showSimulated && store.simulatedData) {
-    const simCode = store.modifiedStrategy?.driverCode
-    const simDriver = store.simulatedData.drivers?.find(d => d.code === simCode)
-    if (simDriver && yBand(simCode) != null) {
-      const simY = yBand(simCode) + yBand.bandwidth() / 2
-
+  if (store.showSimulated && store.simulatedData?.drivers?.length) {
+    store.simulatedData.drivers.forEach((simDriver) => {
+      const simCode = simDriver.code
+      if (yBand(simCode) == null) return
       simDriver.pitStops.forEach(pit => {
         if (pit.lap >= d3.min(laps) && pit.lap <= d3.max(laps)) {
           g.append('line')
@@ -150,7 +148,7 @@ function draw() {
             .text('SIM')
         }
       })
-    }
+    })
   }
 
   if (store.hoveredLap != null) {
