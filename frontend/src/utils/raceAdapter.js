@@ -15,12 +15,52 @@ function colorForCode(code) {
   return DRIVER_COLORS[h % DRIVER_COLORS.length]
 }
 
-/** Seconds behind leader; null / NaN / missing → no plot (do not use 0). */
-function parseGapValue(v) {
+/** Raw gap for trace / sim / ranking (may be negative); null if missing. */
+function rawGap(v) {
   if (v == null || v === '') return null
   const n = Number(v)
-  if (!Number.isFinite(n)) return null
-  return Math.max(0, n)
+  return Number.isFinite(n) ? n : null
+}
+
+/** For sorting: smaller gap = closer to leader = better rank. */
+function gapForRank(g) {
+  if (g == null || g === '') return Infinity
+  const n = Number(g)
+  return Number.isFinite(n) ? n : Infinity
+}
+
+/**
+ * Each lap, rank everyone with a lap row by gap (actual gaps; simulated gap for one driver).
+ * @returns {Map<number, Map<string, number>>} lap → driver code → P1..Pn
+ */
+function buildSimulatedFieldPositions(allDrivers, simCode, simGapsByLap) {
+  const simU = String(simCode || '').toUpperCase()
+  const maxLap = Math.max(
+    0,
+    ...allDrivers.flatMap((d) => d.laps.map((l) => l.lap)),
+  )
+  /** @type {Map<number, Map<string, number>>} */
+  const out = new Map()
+  for (let lap = 1; lap <= maxLap; lap++) {
+    const row = []
+    for (const d of allDrivers) {
+      const lp = d.laps.find((l) => l.lap === lap)
+      if (!lp) continue
+      let g
+      if (String(d.code).toUpperCase() === simU) {
+        g = simGapsByLap.has(lap) ? simGapsByLap.get(lap) : gapForRank(lp.gapToLeader)
+      } else {
+        g = gapForRank(lp.gapToLeader)
+      }
+      row.push({ code: d.code, g })
+    }
+    if (!row.length) continue
+    row.sort((a, b) => a.g - b.g || String(a.code).localeCompare(String(b.code)))
+    const m = new Map()
+    row.forEach((e, i) => m.set(e.code, i + 1))
+    out.set(lap, m)
+  }
+  return out
 }
 
 /** Race position for charts; null if unknown / invalid (BumpChart will skip). */
@@ -62,7 +102,7 @@ export function racePayloadToViewModel(envelope) {
   for (const row of raceTrace) {
     const d = String(row.driver || '').toUpperCase()
     const lap = Math.round(Number(row.lap))
-    traceMap.set(`${d}-${lap}`, parseGapValue(row.gap_to_leader))
+    traceMap.set(`${d}-${lap}`, rawGap(row.gap_to_leader))
   }
 
   const pitEventSet = new Set()
@@ -103,7 +143,7 @@ export function racePayloadToViewModel(envelope) {
     driversMap.get(code).laps.push({
       lap,
       time_s: row.lap_time_sec != null ? Number(row.lap_time_sec) : null,
-      gapToLeader: gap != null && Number.isFinite(gap) ? gap : null,
+      gapToLeader: gap != null && Number.isFinite(gap) ? gap : null, // raw gap (may be negative)
       position: parsePosition(row.position),
       compound: String(row.compound || 'MEDIUM').toUpperCase(),
       tyreAge: Math.round(Number(row.tyre_age)) || 1,
@@ -142,32 +182,63 @@ export function racePayloadToViewModel(envelope) {
  * @param {object} sim - POST /api/simulate JSON
  * @param {object} originalDriver - view-model driver
  * @param {object} modifiedStrategy - { driverCode, pitStops }
+ * @param {object[]|null} allDrivers - full race field for simulated position ranks; omit to keep actual positions
  */
-export function simulateToViewModel(sim, originalDriver, modifiedStrategy) {
-  const traceMap = new Map()
+export function simulateToViewModel(sim, originalDriver, modifiedStrategy, allDrivers = null) {
+  /** @type {Map<number, { gap: number | null, p5?: null, p25?: null, p75?: null, p95?: null }>} */
+  const traceMeta = new Map()
   for (const row of sim.simulated_trace || []) {
     const lap = Math.round(Number(row.lap))
-    traceMap.set(lap, parseGapValue(row.simulated_gap_to_leader))
+    traceMeta.set(lap, {
+      gap: rawGap(row.simulated_gap_to_leader),
+      p5: rawGap(row.p5),
+      p25: rawGap(row.p25),
+      p75: rawGap(row.p75),
+      p95: rawGap(row.p95),
+    })
   }
+
+  /** @type {Map<number, number>} */
+  const simGapsByLap = new Map()
+  for (const [lap, meta] of traceMeta) {
+    if (meta.gap != null) simGapsByLap.set(lap, meta.gap)
+  }
+
+  const posRankByLap =
+    allDrivers?.length > 0
+      ? buildSimulatedFieldPositions(allDrivers, originalDriver.code, simGapsByLap)
+      : null
 
   const laps = (sim.simulated_laps || []).map((row) => {
     const lap = Math.round(Number(row.lap))
     const origLap = originalDriver.laps.find((l) => l.lap === lap)
+    const meta = traceMeta.get(lap)
     let gapToLeader = null
-    if (traceMap.has(lap)) {
-      gapToLeader = traceMap.get(lap)
+    if (meta?.gap != null) {
+      gapToLeader = meta.gap
     } else {
       gapToLeader =
         origLap?.gapToLeader != null && Number.isFinite(origLap.gapToLeader)
           ? origLap.gapToLeader
           : null
     }
+
+    let position = parsePosition(origLap?.position)
+    if (posRankByLap) {
+      const rankMap = posRankByLap.get(lap)
+      const ranked = rankMap?.get(originalDriver.code)
+      if (ranked != null && Number.isFinite(ranked)) position = ranked
+    }
+
     return {
       lap,
       time_s: row.simulated_lap_time_sec != null ? Number(row.simulated_lap_time_sec) : null,
       gapToLeader,
-      position:
-        origLap?.position != null && Number.isFinite(origLap.position) ? origLap.position : null,
+      p5: meta?.p5 ?? null,
+      p25: meta?.p25 ?? null,
+      p75: meta?.p75 ?? null,
+      p95: meta?.p95 ?? null,
+      position,
       compound: String(row.compound || 'MEDIUM').toUpperCase(),
       tyreAge: Math.round(Number(row.simulated_tyre_age)) || 1,
       isPitLap: lap === sim.new_pit_lap,
@@ -192,6 +263,26 @@ export function simulateToViewModel(sim, originalDriver, modifiedStrategy) {
 /**
  * Find first pit stop whose lap differs from original (after user drags).
  */
+/**
+ * Replace one driver's race_trace gaps with simulated gaps (for strategy-viz / sim delta).
+ * @param {object} rawRace - envelope.race shape
+ * @param {string} driverCode
+ * @param {Array<{ lap: number, simulated_gap_to_leader: number }>} simulatedTrace
+ */
+export function mergeSimulatedRaceTrace(rawRace, driverCode, simulatedTrace) {
+  const code = String(driverCode || '')
+    .trim()
+    .toUpperCase()
+  const prev = rawRace.race_trace || []
+  const filtered = prev.filter((r) => String(r.driver || '').toUpperCase() !== code)
+  const added = (simulatedTrace || []).map((row) => ({
+    driver: code,
+    lap: row.lap,
+    gap_to_leader: row.simulated_gap_to_leader,
+  }))
+  return { ...rawRace, race_trace: [...filtered, ...added] }
+}
+
 export function diffPitChange(originalPits, modifiedPits) {
   if (!modifiedPits?.length) return null
   const orig = originalPits || []

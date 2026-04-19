@@ -237,7 +237,10 @@ onMounted(() => {
 
 .dashboard-row--bottom {
   grid-template-columns: 1fr;
-  height: 220px;
+  /* Fixed height: avoids content-driven row growth (delta panel + SVG was stretching the row). */
+  height: 420px;
+  min-height: 0;
+  max-height: 420px;
 }
 
 .panel {
@@ -257,6 +260,16 @@ onMounted(() => {
 .panel:focus-within {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.panel--delta {
+  box-sizing: border-box;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .empty-state {

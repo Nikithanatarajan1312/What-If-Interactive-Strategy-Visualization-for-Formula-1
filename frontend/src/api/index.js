@@ -78,9 +78,23 @@ export function fetchRaceData(raceRow) {
  * @param {number} body.new_pit_lap
  * @param {string} [body.new_compound]
  * @param {number} [body.pit_loss_sec]
+ * @param {number} [body.monte_carlo_samples]
+ * @param {number} [body.random_seed]
+ * @param {boolean} [body.use_ml]
  */
 export function fetchSimulation(body) {
   return request('/simulate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/**
+ * Shared pit-window grid + delta breakdown (backend strategy model).
+ * @param {{ raw_race: object, drivers: string[], selected_pit_laps?: Record<string, number> }} body
+ */
+export function fetchStrategyViz(body) {
+  return request('/strategy-viz', {
     method: 'POST',
     body: JSON.stringify(body),
   })

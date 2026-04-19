@@ -25,10 +25,12 @@ export function useChart(containerRef, margin = { top: 20, right: 20, bottom: 30
     if (!el) return
 
     const rect = el.getBoundingClientRect()
-    const newW = Math.floor(rect.width)
-    const newH = Math.floor(rect.height)
+    // Round to whole CSS pixels; ignore 1–2px jitter from scrollbars/subpixel layout so we
+    // do not tear down + rebuild the SVG on noise (was making bar lengths “breathe”).
+    const newW = Math.max(0, Math.round(rect.width))
+    const newH = Math.max(0, Math.round(rect.height))
 
-    if (newW === lastW && newH === lastH && svg) return
+    if (svg && Math.abs(newW - lastW) < 3 && Math.abs(newH - lastH) < 3) return
     lastW = newW
     lastH = newH
 
@@ -68,7 +70,7 @@ export function useChart(containerRef, margin = { top: 20, right: 20, bottom: 30
 
   function debouncedSetup() {
     clearTimeout(resizeTimer)
-    resizeTimer = setTimeout(setup, 50)
+    resizeTimer = setTimeout(setup, 120)
   }
 
   onMounted(() => {

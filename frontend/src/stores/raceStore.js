@@ -26,6 +26,10 @@ export const useRaceStore = defineStore('race', () => {
   const error = ref(null)
 
   const modifiedStrategy = ref(null)
+  /** @type {import('vue').Ref<null | { pit_window: Record<string, object[]>, delta_breakdown: Record<string, object> }>} */
+  const strategyViz = ref(null)
+  /** Simulated driver's delta breakdown (same model, merged trace). */
+  const simDelta = ref(null)
 
   const drivers = computed(() => raceData.value?.drivers ?? [])
 
@@ -86,11 +90,22 @@ export const useRaceStore = defineStore('race', () => {
       }
       // Keep the list row so dropdown matching (year / grand_prix / country) stays in sync.
       selectedRace.value = race
+      strategyViz.value = null
+      simDelta.value = null
       // Exact POST body: { year, grand_prix, country } e.g. Las Vegas + United States
       const envelope = await api.fetchRaceData({ year, grand_prix, country })
       cacheTag.value = envelope.cache_tag
       raceData.value = racePayloadToViewModel(envelope)
       selectedDrivers.value = []
+      try {
+        const codes = raceData.value.drivers.map((d) => d.code)
+        strategyViz.value = await api.fetchStrategyViz({
+          raw_race: raceData.value._raw,
+          drivers: codes,
+        })
+      } catch (e) {
+        console.warn('strategy-viz failed', e.message)
+      }
     } catch (e) {
       error.value = `Failed to load race: ${e.message}`
       raceData.value = null
@@ -106,6 +121,7 @@ export const useRaceStore = defineStore('race', () => {
   function setModifiedStrategy(strategy) {
     modifiedStrategy.value = strategy
     simulatedData.value = null
+    simDelta.value = null
     showSimulated.value = false
     error.value = null
   }
@@ -151,9 +167,31 @@ export const useRaceStore = defineStore('race', () => {
         new_compound: change.new_compound,
         pit_loss_sec: change.pit_loss_sec,
       })
-      const simDriver = simulateToViewModel(raw, originalDriver, strategy)
+      const simDriver = simulateToViewModel(
+        raw,
+        originalDriver,
+        strategy,
+        raceData.value.drivers,
+      )
       simulatedData.value = { drivers: [simDriver] }
       showSimulated.value = true
+      const bd = raw?.delta_breakdown
+      simDelta.value = bd?.components ? { code: driverCode, ...bd } : null
+      try {
+        const selectedLap = Number(change.new_pit_lap)
+        if (Number.isFinite(selectedLap)) {
+          const viz = await api.fetchStrategyViz({
+            raw_race: raceData.value._raw,
+            drivers: [driverCode],
+            selected_pit_laps: { [String(driverCode).toUpperCase()]: selectedLap },
+          })
+          const u = String(driverCode).toUpperCase()
+          const simBd = viz?.delta_breakdown?.[u]
+          if (simBd?.components) simDelta.value = { code: driverCode, ...simBd }
+        }
+      } catch (e) {
+        console.warn('strategy-viz selected-lap breakdown failed', e.message)
+      }
     } catch (e) {
       error.value = `Simulation failed: ${e.message}`
     } finally {
@@ -186,6 +224,7 @@ export const useRaceStore = defineStore('race', () => {
     simulatedData.value = null
     modifiedStrategy.value = null
     showSimulated.value = false
+    simDelta.value = null
   }
 
   return {
@@ -204,6 +243,8 @@ export const useRaceStore = defineStore('race', () => {
     loading,
     error,
     modifiedStrategy,
+    strategyViz,
+    simDelta,
     drivers,
     activeDrivers,
     totalLaps,
