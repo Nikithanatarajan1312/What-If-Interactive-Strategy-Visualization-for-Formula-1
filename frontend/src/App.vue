@@ -22,9 +22,19 @@ onMounted(() => {
         <h1 class="app-title">What If<span class="app-title__q">?</span></h1>
         <span class="app-subtitle">Interactive F1 Strategy Visualization</span>
       </div>
-      <div class="app-meta" v-if="store.raceData" aria-label="Race info">
-        <span class="race-badge">{{ store.raceData.race?.name }}</span>
-        <span class="race-laps" aria-label="Total laps">{{ store.totalLaps }} Laps</span>
+      <div class="app-header-actions">
+        <a
+          class="app-about"
+          href="/about.html"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          About
+        </a>
+        <div class="app-meta" v-if="store.raceData" aria-label="Race info">
+          <span class="race-badge">{{ store.raceData.race?.name }}</span>
+          <span class="race-laps" aria-label="Total laps">{{ store.totalLaps }} Laps</span>
+        </div>
       </div>
     </header>
 
@@ -140,6 +150,40 @@ onMounted(() => {
   font-weight: 400;
   color: var(--color-text-secondary);
   letter-spacing: 0.02em;
+}
+
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+
+.app-about {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: color var(--duration-normal) var(--ease-out),
+    border-color var(--duration-normal) var(--ease-out),
+    background var(--duration-normal) var(--ease-out);
+}
+
+.app-about:hover {
+  color: var(--color-text);
+  border-color: var(--color-border);
+  background: var(--color-bg);
+}
+
+.app-about:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .app-meta {

@@ -326,7 +326,14 @@ def api_simulate(body: SimulateRequest):
     """
     Run rule-based pit what-if on cached / loaded race data.
 
-    Returns the same structure as simulate_pit_strategy (JSON-safe floats).
+    Response (JSON-safe floats) includes:
+
+    - ``monte_carlo_samples``: 1 = deterministic; 2+ = Monte Carlo over pit / pace noise.
+    - ``has_simulated_gap_uncertainty``: true when percentiles may differ from the median line.
+    - ``simulated_trace``: one row per lap with ``simulated_gap_to_leader`` (median) and
+      ``p5``, ``p25``, ``p75``, ``p95`` (seconds behind leader).
+    - ``simulated_laps``: tyre/lap rollout; each row also has ``simulated_gap_p05`` … ``simulated_gap_p95``
+      (same percentiles as ``simulated_trace``, explicit names for API clients).
     """
     payload = resolve_race_payload(body)
 

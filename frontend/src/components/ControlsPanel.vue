@@ -42,7 +42,6 @@ function onRunSimulation() {
 }
 
 function onResetStrategy() {
-  store.modifiedStrategy = null
   store.resetStrategy()
 }
 
@@ -118,7 +117,7 @@ function isDriverActive(code) {
 
     <div class="controls-group controls-group--actions" v-if="store.raceData">
       <button
-        v-if="store.modifiedStrategy && !store.simulatedData"
+        v-if="store.canRunSimulation"
         class="control-btn control-btn--simulate"
         :disabled="store.loading"
         @click="onRunSimulation"
@@ -127,14 +126,14 @@ function isDriverActive(code) {
         Run Simulation
       </button>
       <button
-        v-if="store.modifiedStrategy"
+        v-if="store.modifiedStrategy || store.savedSimulationCodes.length"
         class="control-btn control-btn--reset"
         @click="onResetStrategy"
-        aria-label="Reset modified pit strategy to original"
+        aria-label="Clear modified pits and all saved simulations"
       >
         Reset Strategy
       </button>
-      <label class="control-toggle" v-if="store.simulatedData">
+      <label class="control-toggle" v-if="store.savedSimulationCodes.length">
         <input
           type="checkbox"
           v-model="store.showSimulated"
@@ -142,6 +141,30 @@ function isDriverActive(code) {
         />
         <span class="toggle-label">Show Simulated</span>
       </label>
+    </div>
+
+    <div
+      v-if="store.raceData && store.savedSimulationCodes.length"
+      class="controls-group controls-group--saved"
+      role="group"
+      aria-label="Saved simulations"
+    >
+      <span class="control-label" id="saved-sims-label">Saved</span>
+      <ul class="saved-sims" aria-labelledby="saved-sims-label">
+        <li v-for="code in store.savedSimulationCodes" :key="code">
+          <span class="saved-sim-chip" :title="`Simulated strategy for ${code}`">
+            {{ code }}
+            <button
+              type="button"
+              class="saved-sim-remove"
+              :aria-label="`Remove saved simulation for ${code}`"
+              @click="store.removeSavedSimulation(code)"
+            >
+              ×
+            </button>
+          </span>
+        </li>
+      </ul>
     </div>
 
     <div
@@ -289,6 +312,56 @@ function isDriverActive(code) {
 .driver-chip:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.controls-group--saved {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.saved-sims {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.saved-sim-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 8px;
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.saved-sim-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.saved-sim-remove:hover {
+  color: var(--color-danger);
+  background: rgba(255, 107, 107, 0.12);
 }
 
 .controls-status {

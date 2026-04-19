@@ -689,6 +689,19 @@ def simulate_gap_trace_hybrid(
         sim_plan=sim_plan,
     )
 
+    # Per-lap gap uncertainty (Monte Carlo percentiles); same values as simulated_trace[p5..p95].
+    trace_by_lap = {int(r["lap"]): r for r in simulated_trace}
+    for row in simulated_laps:
+        t = trace_by_lap.get(int(row["lap"]))
+        if not t:
+            continue
+        med = float(t["simulated_gap_to_leader"])
+        row["simulated_gap_p05"] = float(t["p5"])
+        row["simulated_gap_p25"] = float(t["p25"])
+        row["simulated_gap_p50"] = med
+        row["simulated_gap_p75"] = float(t["p75"])
+        row["simulated_gap_p95"] = float(t["p95"])
+
     actual_trace = [
         {"lap": lap, "gap_to_leader": actual_gap_by_lap.get(lap, 0.0)}
         for lap in lap_nums
@@ -722,6 +735,7 @@ def simulate_gap_trace_hybrid(
         "old_pit_lap": int(old_pit_lap),
         "pit_shift": int(pit_shift),
         "monte_carlo_samples": int(n_mc),
+        "has_simulated_gap_uncertainty": bool(n_mc > 1),
         "simulation_mode": simulation_mode,
         "model_available": pace_model_available,
         "pit_loss_model_available": pit_model_available,

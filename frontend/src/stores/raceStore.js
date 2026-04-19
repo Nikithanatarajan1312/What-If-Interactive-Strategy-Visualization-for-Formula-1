@@ -15,7 +15,12 @@ export const useRaceStore = defineStore('race', () => {
   /** @type {import('vue').Ref<null | object>} */
   const raceData = ref(null)
   const cacheTag = ref(null)
-  const simulatedData = ref(null)
+
+  /**
+   * Per-driver saved what-if runs: driver code -> { strategy, simDriver, simDelta }.
+   * Lets multiple drivers keep simulated overlays in one session.
+   */
+  const savedSimulations = ref({})
 
   const selectedDrivers = ref([])
   const hoveredLap = ref(null)
@@ -28,8 +33,6 @@ export const useRaceStore = defineStore('race', () => {
   const modifiedStrategy = ref(null)
   /** @type {import('vue').Ref<null | { pit_window: Record<string, object[]>, delta_breakdown: Record<string, object> }>} */
   const strategyViz = ref(null)
-  /** Simulated driver's delta breakdown (same model, merged trace). */
-  const simDelta = ref(null)
 
   const drivers = computed(() => raceData.value?.drivers ?? [])
 
@@ -39,6 +42,34 @@ export const useRaceStore = defineStore('race', () => {
   })
 
   const totalLaps = computed(() => raceData.value?.race?.totalLaps ?? 0)
+
+  /** Merged `{ drivers: [...] }` for charts — one simDriver per saved driver. */
+  const simulatedData = computed(() => {
+    const entries = Object.values(savedSimulations.value)
+    if (!entries.length) return null
+    return { drivers: entries.map((e) => e.simDriver) }
+  })
+
+  const savedSimulationCodes = computed(() => Object.keys(savedSimulations.value))
+
+  /** True when current modified pits differ from race actual and from saved snapshot for this driver (needs Run). */
+  const canRunSimulation = computed(() => {
+    if (!modifiedStrategy.value || !raceData.value) return false
+    const code = modifiedStrategy.value.driverCode
+    const orig = raceData.value.drivers.find((d) => d.code === code)
+    if (!orig) return false
+    const ch = diffPitChange(orig.pitStops, modifiedStrategy.value.pitStops)
+    if (!ch) return false
+    const sav = savedSimulations.value[code]
+    if (!sav) return true
+    return (
+      JSON.stringify(sav.strategy.pitStops) !== JSON.stringify(modifiedStrategy.value.pitStops)
+    )
+  })
+
+  function pitsEqual(a, b) {
+    return JSON.stringify(a ?? []) === JSON.stringify(b ?? [])
+  }
 
   async function loadYears() {
     try {
@@ -58,8 +89,9 @@ export const useRaceStore = defineStore('race', () => {
       selectedRace.value = null
       raceData.value = null
       cacheTag.value = null
-      simulatedData.value = null
+      savedSimulations.value = {}
       modifiedStrategy.value = null
+      showSimulated.value = false
       availableRaces.value = await api.fetchRacesForYear(year)
     } catch (e) {
       error.value = `Failed to load races: ${e.message}`
@@ -76,7 +108,7 @@ export const useRaceStore = defineStore('race', () => {
     if (!race) return
     loading.value = true
     error.value = null
-    simulatedData.value = null
+    savedSimulations.value = {}
     modifiedStrategy.value = null
     showSimulated.value = false
     brushedLapRange.value = null
@@ -88,11 +120,8 @@ export const useRaceStore = defineStore('race', () => {
       if (!year || !grand_prix || !country) {
         throw new Error('Pick a race from the list (needs year, grand_prix, country — not a label-only string).')
       }
-      // Keep the list row so dropdown matching (year / grand_prix / country) stays in sync.
       selectedRace.value = race
       strategyViz.value = null
-      simDelta.value = null
-      // Exact POST body: { year, grand_prix, country } e.g. Las Vegas + United States
       const envelope = await api.fetchRaceData({ year, grand_prix, country })
       cacheTag.value = envelope.cache_tag
       raceData.value = racePayloadToViewModel(envelope)
@@ -116,29 +145,27 @@ export const useRaceStore = defineStore('race', () => {
   }
 
   /**
-   * Call after user edits pit stops (drag). Clears previous sim so charts can refresh.
+   * When user edits pits for a driver, drop that driver's saved sim if pits no longer match.
+   * Other drivers' saved simulations are kept.
    */
   function setModifiedStrategy(strategy) {
     modifiedStrategy.value = strategy
-    simulatedData.value = null
-    simDelta.value = null
-    showSimulated.value = false
+    const code = strategy.driverCode
+    const prev = savedSimulations.value[code]
+    if (prev && !pitsEqual(prev.strategy.pitStops, strategy.pitStops)) {
+      const next = { ...savedSimulations.value }
+      delete next[code]
+      savedSimulations.value = next
+    }
     error.value = null
   }
 
-  /**
-   * After moving a pit marker: save strategy + re-run backend sim so traces update.
-   * (Avoids the bug where Run Simulation stayed hidden once simulatedData was set.)
-   */
   async function applyPitStrategyChange(strategy) {
     if (!selectedRace.value || !cacheTag.value || !raceData.value) return
     setModifiedStrategy(strategy)
     await simulate(strategy, { silentNoDiff: true })
   }
 
-  /**
-   * @param {{ silentNoDiff?: boolean }} opts - if true, no error when pit laps match original (e.g. tiny drag)
-   */
   async function simulate(strategy, opts = {}) {
     if (!selectedRace.value || !cacheTag.value || !raceData.value) return
     const driverCode = strategy.driverCode
@@ -173,10 +200,8 @@ export const useRaceStore = defineStore('race', () => {
         strategy,
         raceData.value.drivers,
       )
-      simulatedData.value = { drivers: [simDriver] }
-      showSimulated.value = true
       const bd = raw?.delta_breakdown
-      simDelta.value = bd?.components ? { code: driverCode, ...bd } : null
+      let simDelta = bd?.components ? { code: driverCode, ...bd } : null
       try {
         const selectedLap = Number(change.new_pit_lap)
         if (Number.isFinite(selectedLap)) {
@@ -187,16 +212,35 @@ export const useRaceStore = defineStore('race', () => {
           })
           const u = String(driverCode).toUpperCase()
           const simBd = viz?.delta_breakdown?.[u]
-          if (simBd?.components) simDelta.value = { code: driverCode, ...simBd }
+          if (simBd?.components) simDelta = { code: driverCode, ...simBd }
         }
       } catch (e) {
         console.warn('strategy-viz selected-lap breakdown failed', e.message)
       }
+
+      const strategySnap = JSON.parse(JSON.stringify(strategy))
+      savedSimulations.value = {
+        ...savedSimulations.value,
+        [driverCode]: {
+          strategy: strategySnap,
+          simDriver,
+          simDelta,
+        },
+      }
+      showSimulated.value = true
     } catch (e) {
       error.value = `Simulation failed: ${e.message}`
     } finally {
       loading.value = false
     }
+  }
+
+  function removeSavedSimulation(code) {
+    if (!code || !savedSimulations.value[code]) return
+    const next = { ...savedSimulations.value }
+    delete next[code]
+    savedSimulations.value = next
+    if (!Object.keys(next).length) showSimulated.value = false
   }
 
   function toggleDriver(code) {
@@ -221,10 +265,10 @@ export const useRaceStore = defineStore('race', () => {
   }
 
   function resetStrategy() {
-    simulatedData.value = null
+    savedSimulations.value = {}
     modifiedStrategy.value = null
     showSimulated.value = false
-    simDelta.value = null
+    error.value = null
   }
 
   return {
@@ -234,7 +278,10 @@ export const useRaceStore = defineStore('race', () => {
     selectedRace,
     cacheTag,
     raceData,
+    savedSimulations,
     simulatedData,
+    savedSimulationCodes,
+    canRunSimulation,
     selectedDrivers,
     hoveredLap,
     brushedLapRange,
@@ -244,7 +291,6 @@ export const useRaceStore = defineStore('race', () => {
     error,
     modifiedStrategy,
     strategyViz,
-    simDelta,
     drivers,
     activeDrivers,
     totalLaps,
@@ -255,6 +301,7 @@ export const useRaceStore = defineStore('race', () => {
     simulate,
     setModifiedStrategy,
     applyPitStrategyChange,
+    removeSavedSimulation,
     toggleDriver,
     setHoveredLap,
     setBrushedRange,

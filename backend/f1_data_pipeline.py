@@ -11,6 +11,8 @@ What this script does:
 from __future__ import annotations
 
 import argparse
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -198,14 +200,21 @@ def save_outputs(laps_df: pd.DataFrame, openf1_df: pd.DataFrame, tag: str) -> No
 
 
 def slugify(text: str) -> str:
-    """Create a simple lowercase filename-friendly tag."""
-    return (
-        (text or "")
-        .strip()
-        .lower()
-        .replace(" ", "_")
-        .replace("-", "_")
-    )
+    """
+    Lowercase ASCII slug for cache filenames and API ``cache_tag`` values.
+
+    Strips accents (e.g. São → sao) so names match ``SAFE_CACHE_TAG`` in ``api.py``
+    (letters, digits, underscore, hyphen only).
+    """
+    s = (text or "").strip()
+    if not s:
+        return "race"
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s or "race"
 
 
 def validate_grand_prix_input(grand_prix: str) -> None:
