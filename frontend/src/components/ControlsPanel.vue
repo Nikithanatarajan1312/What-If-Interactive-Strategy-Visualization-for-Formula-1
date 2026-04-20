@@ -46,7 +46,7 @@ function onResetStrategy() {
 }
 
 function isDriverActive(code) {
-  return store.selectedDrivers.length === 0 || store.selectedDrivers.includes(code)
+  return store.selectedDrivers.includes(code)
 }
 
 </script>
@@ -137,11 +137,57 @@ function isDriverActive(code) {
         <input
           type="checkbox"
           v-model="store.showSimulated"
+          :disabled="store.vizCompareMode === 'actual_only' || store.vizCompareMode === 'sim_only'"
           aria-label="Toggle simulated overlay"
         />
         <span class="toggle-label">Show Simulated</span>
       </label>
     </div>
+
+    <div
+      v-if="store.raceData && store.savedSimulationCodes.length"
+      class="controls-group controls-group--viz"
+      role="group"
+      aria-label="Baseline versus simulated view"
+    >
+      <label class="control-label" for="viz-compare-mode" id="viz-mode-label">Compare</label>
+      <select
+        id="viz-compare-mode"
+        class="control-select control-select--compact"
+        aria-labelledby="viz-mode-label"
+        :value="store.vizCompareMode"
+        @change="store.setVizCompareMode($event.target.value)"
+      >
+        <option value="overlay">Overlay</option>
+        <option value="split">Split</option>
+        <option value="actual_only">Actual only</option>
+        <option value="sim_only">Sim only</option>
+      </select>
+    </div>
+
+    <div v-if="store.raceData && store.drivers.length" class="controls-group" role="group" aria-labelledby="focus-label">
+      <label class="control-label" for="focus-driver" id="focus-label">Focus</label>
+      <select
+        id="focus-driver"
+        class="control-select control-select--compact"
+        aria-labelledby="focus-label"
+        :value="store.focusDriverCode || ''"
+        @change="store.setFocusDriver($event.target.value || null)"
+      >
+        <option value="">All drivers</option>
+        <option v-for="d in store.activeDrivers" :key="d.code" :value="d.code">
+          {{ d.code }}
+        </option>
+      </select>
+    </div>
+
+    <p
+      v-if="store.raceData && store.savedSimulationCodes.length > 1"
+      class="controls-hint"
+      role="note"
+    >
+      Use Focus to compare one driver’s actual line to their sim without hiding the rest of the field.
+    </p>
 
     <div
       v-if="store.raceData && store.savedSimulationCodes.length"
@@ -203,6 +249,25 @@ function isDriverActive(code) {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--color-text-muted);
+}
+
+.control-select--compact {
+  min-width: 8.5rem;
+}
+
+.controls-group--viz {
+  align-items: center;
+}
+
+.controls-hint {
+  margin: 0;
+  width: 100%;
+  flex-basis: 100%;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--color-text-muted);
+  max-width: 28rem;
 }
 
 .control-select {

@@ -24,11 +24,10 @@ export function useChart(containerRef, margin = { top: 20, right: 20, bottom: 30
     const el = containerRef.value
     if (!el) return
 
-    const rect = el.getBoundingClientRect()
-    // Round to whole CSS pixels; ignore 1–2px jitter from scrollbars/subpixel layout so we
-    // do not tear down + rebuild the SVG on noise (was making bar lengths “breathe”).
-    const newW = Math.max(0, Math.round(rect.width))
-    const newH = Math.max(0, Math.round(rect.height))
+    /* Use layout box (not getBoundingClientRect) so CSS transforms on ancestors
+       (e.g. BoundedCanvas zoom in Pro mode) do not double-scale chart dimensions. */
+    const newW = Math.max(0, Math.round(el.clientWidth))
+    const newH = Math.max(0, Math.round(el.clientHeight))
 
     if (svg && Math.abs(newW - lastW) < 3 && Math.abs(newH - lastH) < 3) return
     lastW = newW

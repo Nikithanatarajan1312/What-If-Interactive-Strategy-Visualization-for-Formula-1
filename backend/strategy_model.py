@@ -197,6 +197,37 @@ def compute_pit_window_grid(
     return out
 
 
+def _default_pit_lap_for_delta_breakdown(
+    pit_window_rows: List[Dict[str, Any]], old_pit: int
+) -> Optional[int]:
+    """
+    When the UI has not picked a what-if lap yet, choose a single counterfactual lap so the
+    delta breakdown chart can render: best pit-window gain among laps that differ from the
+    actual first stop (same ordering as the heatmap's ``value`` field).
+    """
+    old = int(old_pit)
+    candidates: List[Dict[str, Any]] = []
+    for r in pit_window_rows or []:
+        try:
+            lap = int(round(_float(r.get("lap", 0))))
+        except (TypeError, ValueError):
+            continue
+        if lap == old:
+            continue
+        candidates.append(r)
+    if not candidates:
+        return None
+    # Max gain (value); tie-break toward earlier lap for stable UI.
+    best_row = max(
+        candidates,
+        key=lambda r: (_float(r.get("value", 0)), -float(r.get("lap", 0))),
+    )
+    try:
+        return int(round(_float(best_row.get("lap", 0))))
+    except (TypeError, ValueError):
+        return None
+
+
 def compute_delta_breakdown(
     raw_race: Dict[str, Any],
     driver: str,
@@ -280,6 +311,7 @@ def build_strategy_viz_payload(
 
     pit_window: Dict[str, List[Dict[str, Any]]] = {}
     delta_breakdown: Dict[str, Any] = {}
+    stints_clean = raw_race.get("stints_clean") or []
 
     for code in driver_codes:
         c = _norm_code(code)
@@ -291,6 +323,12 @@ def build_strategy_viz_payload(
             selected_lap = selected_pit_laps.get(c)
             if selected_lap is None:
                 selected_lap = selected_pit_laps.get(code)
+        if selected_lap is None:
+            pit_laps = _pit_laps_from_stints(stints_clean, c)
+            if pit_laps:
+                selected_lap = _default_pit_lap_for_delta_breakdown(
+                    pit_window[c], pit_laps[0]
+                )
         db = compute_delta_breakdown(raw_race, c, total_laps, selected_lap)
         if db:
             delta_breakdown[c] = db

@@ -1,11 +1,15 @@
 <script setup>
 import { ref, watch } from 'vue'
+
+const HEATMAP_PAGE_SIZE = 6
 import * as d3 from 'd3'
 import { useRaceStore } from '../stores/raceStore'
 import { useChart } from '../composables/useChart'
 import { useTooltip } from '../composables/useTooltip'
+import { chartVizLayers, useSimHoldPreview } from '../composables/useSimHoldPreview'
 
 const store = useRaceStore()
+const { onSimHoldPointerDown } = useSimHoldPreview(store, 'pitHeatmap')
 const container = ref(null)
 const tooltip = useTooltip()
 
@@ -15,9 +19,46 @@ const { width, height, getG, getSvg, onDraw, redraw } = useChart(container, marg
 onDraw(draw)
 
 watch(
-  () => [store.activeDrivers, store.strategyViz, store.hoveredLap, store.brushedLapRange, store.highlightedDriver, store.savedSimulations, store.simulatedData, store.showSimulated],
+  () => [
+    store.activeDrivers,
+    store.strategyViz,
+    store.hoveredLap,
+    store.brushedLapRange,
+    store.highlightedDriver,
+    store.savedSimulations,
+    store.simulatedData,
+    store.showSimulated,
+    store.heatmapPage,
+    store.focusDriverCode,
+    store.vizShowSimLayer,
+    store.vizShowActualLayer,
+    store.simHoldChartId,
+    store.vizCompareMode,
+  ],
   () => { redraw() },
   { deep: true }
+)
+
+watch(
+  () => [store.focusDriverCode, store.activeDrivers],
+  () => {
+    const list = store.activeDrivers
+    const focus = store.focusDriverCode
+    if (!focus || !list.length) return
+    const idx = list.findIndex((d) => d.code === focus)
+    if (idx < 0) return
+    const page = Math.floor(idx / HEATMAP_PAGE_SIZE)
+    if (page !== store.heatmapPage) store.setHeatmapPage(page)
+  },
+  { deep: true }
+)
+
+watch(
+  () => store.activeDrivers.length,
+  (n) => {
+    const max = Math.max(0, Math.ceil(n / HEATMAP_PAGE_SIZE) - 1)
+    if (store.heatmapPage > max) store.setHeatmapPage(max)
+  }
 )
 
 /** Pit-window cells from ``POST /api/strategy-viz`` (same model as delta breakdown). */
@@ -46,7 +87,17 @@ function draw() {
   svg.attr('role', 'img')
     .attr('aria-label', 'Pit window heatmap. Green means pitting gains time, red means pitting loses time.')
 
-  const drivers = store.activeDrivers
+  const driversAll = store.activeDrivers
+  if (!driversAll.length) return
+
+  const page = store.heatmapPage
+  const maxPage = Math.max(0, Math.ceil(driversAll.length / HEATMAP_PAGE_SIZE) - 1)
+  const safePage = Math.min(Math.max(0, page), maxPage)
+
+  const drivers = driversAll.slice(
+    safePage * HEATMAP_PAGE_SIZE,
+    safePage * HEATMAP_PAGE_SIZE + HEATMAP_PAGE_SIZE
+  )
   if (!drivers.length) return
 
   const allCells = pitWindowCellsForDrivers(drivers)
@@ -54,6 +105,11 @@ function draw() {
 
   const brushRange = store.brushedLapRange
   const highlighted = store.highlightedDriver
+  const focus = store.focusDriverCode
+  const { showActual: showHeatmapActual, showSim: showHeatmapSim } = chartVizLayers(
+    store,
+    'pitHeatmap'
+  )
 
   const filteredCells = brushRange
     ? allCells.filter(c => c.lap >= brushRange[0] && c.lap <= brushRange[1])
@@ -90,39 +146,43 @@ function draw() {
       .style('font-size', 'var(--text-xs)').style('font-weight', '700')
       .style('font-family', 'var(--font-display)')
       .style('fill', driver?.color || 'var(--color-text)')
-      .style('opacity', highlighted && highlighted !== code ? 0.3 : 1)
+      .style('opacity', (highlighted && highlighted !== code) || (focus && focus !== code) ? 0.28 : 1)
       .text(code)
   })
 
-  filteredCells.forEach(cell => {
-    const cx = x(cell.lap)
-    const cy = yBand(cell.driver)
-    if (cy == null) return
+  if (showHeatmapActual) {
+    filteredCells.forEach(cell => {
+      const cx = x(cell.lap)
+      const cy = yBand(cell.driver)
+      if (cy == null) return
 
-    const dimmed = highlighted && highlighted !== cell.driver
+      const dimmed =
+        (highlighted && highlighted !== cell.driver)
+        || (focus && focus !== cell.driver)
 
-    const valueClamped = Math.max(-maxAbs, Math.min(maxAbs, cell.value))
-    g.append('rect')
-      .attr('x', cx).attr('y', cy)
-      .attr('width', cellW).attr('height', yBand.bandwidth())
-      .attr('fill', colorScale(valueClamped)).attr('rx', 1)
-      .attr('opacity', dimmed ? 0.15 : 1)
-      .on('mouseover', (event) => {
-        const sign = cell.value >= 0 ? '+' : ''
-        const label = cell.value >= 0 ? 'Pit gain' : 'Pit loss'
-        tooltip.show(`<strong>${cell.driver}</strong> Lap ${cell.lap}<br/>
-          ${label}: <span style="color:${cell.value >= 0 ? 'var(--color-success)' : 'var(--color-danger)'}; font-weight:700">${sign}${cell.value.toFixed(1)}s</span>`)
-        tooltip.move(event)
-        store.setHighlightedDriver(cell.driver)
-      })
-      .on('mousemove', (event) => tooltip.move(event))
-      .on('mouseout', () => {
-        tooltip.hide()
-        store.setHighlightedDriver(null)
-      })
-  })
+      const valueClamped = Math.max(-maxAbs, Math.min(maxAbs, cell.value))
+      g.append('rect')
+        .attr('x', cx).attr('y', cy)
+        .attr('width', cellW).attr('height', yBand.bandwidth())
+        .attr('fill', colorScale(valueClamped)).attr('rx', 1)
+        .attr('opacity', dimmed ? 0.15 : 1)
+        .on('mouseover', (event) => {
+          const sign = cell.value >= 0 ? '+' : ''
+          const label = cell.value >= 0 ? 'Pit gain' : 'Pit loss'
+          tooltip.show(`<strong>${cell.driver}</strong> Lap ${cell.lap}<br/>
+            ${label}: <span style="color:${cell.value >= 0 ? 'var(--color-success)' : 'var(--color-danger)'}; font-weight:700">${sign}${cell.value.toFixed(1)}s</span>`)
+          tooltip.move(event)
+          store.setHighlightedDriver(cell.driver)
+        })
+        .on('mousemove', (event) => tooltip.move(event))
+        .on('mouseout', () => {
+          tooltip.hide()
+          store.setHighlightedDriver(null)
+        })
+    })
+  }
 
-  if (store.showSimulated && store.simulatedData?.drivers?.length) {
+  if (showHeatmapSim && store.simulatedData?.drivers?.length) {
     store.simulatedData.drivers.forEach((simDriver) => {
       const simCode = simDriver.code
       if (yBand(simCode) == null) return
@@ -188,9 +248,65 @@ function draw() {
 
 <template>
   <div class="pit-heatmap">
-    <h3 class="panel-title">Pit Window <span class="panel-title__sub">Heatmap</span></h3>
+    <div class="heatmap-head">
+      <h3 class="panel-title">Pit Window <span class="panel-title__sub">Heatmap</span></h3>
+      <div class="heatmap-head-actions">
+        <button
+          type="button"
+          class="panel-expand heatmap-expand panel-sim-hold"
+          :disabled="!store.hasSavedSimulations"
+          title="Hold to preview this chart with simulated pit plan only"
+          aria-label="Hold to preview pit heatmap with simulated pit plan only"
+          @pointerdown="onSimHoldPointerDown"
+          @click.prevent
+        >
+          Sim
+        </button>
+        <button
+          type="button"
+          class="panel-expand heatmap-expand"
+          :aria-expanded="store.expandedPanelId === 'pitHeatmap'"
+          aria-label="Expand pit window heatmap panel"
+          @click="store.toggleExpandedPanel('pitHeatmap')"
+        >
+          Expand
+        </button>
+      </div>
+    </div>
+    <div
+      v-if="store.activeDrivers.length > HEATMAP_PAGE_SIZE"
+      class="heatmap-pager"
+      role="navigation"
+      aria-label="Driver page for heatmap"
+    >
+        <button
+          type="button"
+          class="heatmap-pager__btn"
+          :disabled="store.heatmapPage <= 0"
+          aria-label="Previous drivers page"
+          @click="store.setHeatmapPage(store.heatmapPage - 1)"
+        >
+          Prev
+        </button>
+        <span class="heatmap-pager__meta" aria-live="polite">
+          {{ store.heatmapPage * HEATMAP_PAGE_SIZE + 1 }}–{{
+            Math.min((store.heatmapPage + 1) * HEATMAP_PAGE_SIZE, store.activeDrivers.length)
+          }}
+          of {{ store.activeDrivers.length }}
+        </span>
+        <button
+          type="button"
+          class="heatmap-pager__btn"
+          :disabled="(store.heatmapPage + 1) * HEATMAP_PAGE_SIZE >= store.activeDrivers.length"
+          aria-label="Next drivers page"
+          @click="store.setHeatmapPage(store.heatmapPage + 1)"
+        >
+          Next
+        </button>
+    </div>
     <div ref="container" class="chart-container" role="figure" aria-label="Pit window gain/loss heatmap">
       <p class="placeholder" v-if="!store.raceData">Select a race to view pit windows</p>
+      <p class="placeholder" v-else-if="!store.activeDrivers.length">Select one or more drivers to view the heatmap</p>
       <p class="placeholder" v-else-if="store.raceData && !store.strategyViz">Loading strategy model…</p>
     </div>
   </div>
@@ -201,6 +317,99 @@ function draw() {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+.heatmap-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.heatmap-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.heatmap-head .panel-title {
+  margin-bottom: 0;
+}
+
+.heatmap-expand {
+  flex-shrink: 0;
+}
+
+.heatmap-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  margin-bottom: var(--space-2);
+}
+
+.heatmap-pager__btn {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.heatmap-pager__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.heatmap-pager__meta {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.panel-expand {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.panel-expand:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.panel-sim-hold {
+  touch-action: none;
+  user-select: none;
+}
+
+.panel-sim-hold:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.panel-sim-hold:disabled:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
 }
 
 .panel-title {
