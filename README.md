@@ -1,30 +1,71 @@
 # What If? — Interactive F1 Strategy Visualization
 
-Explore **Grand Prix strategy** with real session data (**FastF1** / **OpenF1**), cached as JSON. Load a race, inspect **gap traces**, **positions**, **tyre stints**, and a **pit-window heatmap**. Edit a pit stop, **run a what-if simulation**, and compare **actual vs simulated** outcomes—including optional **Monte Carlo** uncertainty on the simulated gap trace.
+Explore Grand Prix strategy with real session data (FastF1 / OpenF1), cached as JSON. Load a race, inspect how the field evolved, stress-test a different pit lap, and compare actual and modelled outcomes side by side—including optional Monte Carlo uncertainty on the simulated gap trace.
 
 ---
 
 ## What this project does
 
-- **Browse** seasons and races; **load** a full preprocessed payload (`laps_clean`, `stints_clean`, `race_trace`, …).
-- **Visualize** how the race unfolded and how alternative pit timing might change the result.
-- **Simulate** strategy changes via `POST /api/simulate`; overlay simulated traces on charts. Multiple drivers can keep **saved** what-if runs in one session.
-- The backend can use **hybrid ML + heuristics** when artifacts exist under `backend/strategy/artifacts/`, with **fallback** when not.
+- Browse seasons and races; load a full preprocessed payload (`laps_clean`, `stints_clean`, `race_trace`, …).
+- Visualize pace, position, tyres, and modelled pit-window tradeoffs in a single dashboard.
+- Simulate strategy changes via `POST /api/simulate` and overlay results on the charts. Multiple drivers can keep saved what-if runs in one session.
+- The backend can use hybrid ML plus heuristics when artifacts exist under `backend/strategy/artifacts/`, with fallback when not.
 
 ---
 
-## Dashboard (panels)
+## Visualization
 
-| Panel | What you see |
+The UI is a **linked dashboard**: one race selection drives every view. Charts are built with **D3** inside Vue; shared state (selected race, drivers, hovered lap, brush range, simulated overlays) keeps the panels visually aligned. Typical flow: scan the trace and positions, read tyre stints, then use the heatmap and delta panels to interpret *why* a stop window matters and *what changes* when you move a pit.
+
+### Shared interactions
+
+- **Brush on the time-based charts** (race trace, bump chart) to zoom a lap range; reset returns to the full race.
+- **Hover** shows a lap-synchronized crosshair and tooltip where implemented (gap, position, tyre context).
+- **Driver chips / selection** in the controls reduce clutter when you only care about a subset of the field.
+- **Simulated overlay** uses distinct styling (dashed lines, italic labels) so it never reads as observed telemetry.
+
+### Race trace (gap to leader)
+
+Each driver is a **line in their team color**: vertical axis is **seconds behind the race leader** (gap), horizontal axis is **lap number**. Lower on the chart means closer to the leader. **Pit stops** appear as markers on the lap before the stop, coloured by the **compound fitted after the stop** (soft / medium / hard / inter / wet).
+
+When you run a simulation with **more than one Monte Carlo sample**, the backend returns per-lap percentiles for the simulated gap. The chart draws a **shaded band** (5th–95th and 25th–75th) only when that spread is meaningful—never a decorative ribbon on real data.
+
+### Bump chart (positions)
+
+**Classification position** (P1 at the top of the scale) is plotted against lap. Line crossings are easy to read as position changes; **overtakes** are called out with small circles (green when the driver gained a place, red when they lost). The chart stops at retirement if positions become invalid. A **saved simulation** adds a dashed position trace for that driver when enabled.
+
+### Stint bar
+
+A **horizontal strip per driver** shows **compound** segments in canonical tyre colours, with length proportional to stint duration in laps. It answers “who was on what rubber, and for how long?” at a glance, and complements the gap chart when you explain pace and stops.
+
+### Pit window heatmap
+
+A **2D grid**: one axis is **candidate pit lap**, the other is **driver** (or the model’s pit-window dimension as implemented). Cell colour encodes the **modelled gain or loss** (e.g. final gap vs baseline) if that driver stopped on that lap—warmer/cooler or signed colour scales depending on theme. The view is fed by `POST /api/strategy-viz` so it stays consistent with the same strategy model as the rest of the app.
+
+### Delta breakdown
+
+This panel is split on purpose so **scales are not mixed**:
+
+1. **Baseline breakdown** — For each selected driver, **stacked horizontal bars** show **modelled components** (pit timing, tyre/pace, traffic/rejoin) that sum to a **full “model total”** explanation of outcome. This is *descriptive*: why the model thinks they ended up where they did relative to the narrative encoded in the breakdown.
+
+2. **What-if delta** — Only drivers with a **saved simulation** appear. Bars show **changes vs the actual baseline** (same component colours). **Positive** values mean improvement (e.g. closer to the leader in gap terms, per the model); **negative** mean worse. A line labelled **net vs actual** ties to the overall simulated delta.
+
+Colours are **consistent** between the two blocks (pit / pace / traffic), so you can map stripes in one section to stripes in the other without relearning the legend.
+
+### Controls strip
+
+Pick **year** and **race**, then load. Choose **drivers** to include, **edit** the pit strategy for one driver (move a stop, change compound), and **run simulation**. Toggles control whether simulated layers appear on the charts once you have saved runs.
+
+---
+
+## Tech stack
+
+| Layer | Technologies |
 |--------|----------------|
-| **Race trace** | Gap to leader vs lap; actual lines + pit markers; simulated dashed line and **p5–p95** band when Monte Carlo spread is meaningful. |
-| **Bump chart** | Position vs lap; overtakes highlighted; optional sim overlay. |
-| **Stint bar** | Tyre-compound timeline per driver. |
-| **Pit heatmap** | Model **pit-window** tradeoffs by candidate stop lap (`POST /api/strategy-viz`). |
-| **Delta breakdown** | Two **separate** blocks: **Baseline breakdown** (full modeled component totals per driver—*why they finished where they did*) and **What-if delta** (saved simulation only—*how the edited strategy changed the outcome*, deltas vs actual). Same pit / pace / traffic **colors** in both. |
-| **Controls** | Year, race, drivers, pit editor, run simulation, toggles. |
-
-**Stack:** Vue 3, Vite, Pinia, **D3** · FastAPI, Uvicorn · FastF1, OpenF1, pandas · optional scikit-learn / joblib for strategy models.
+| Frontend | Vue 3, Vite, Pinia, D3 |
+| Backend | FastAPI, Uvicorn, Pydantic |
+| Data | FastF1, OpenF1, pandas |
+| Models (optional) | scikit-learn, joblib under `backend/strategy/` |
 
 ---
 
@@ -153,11 +194,8 @@ curl -s -X POST http://127.0.0.1:8000/api/simulate \
 │       ├── simulator.py      # Gap-trace simulation, Monte Carlo
 │       └── artifacts/        # Optional joblib models
 ├── data/cache/               # Cached race JSON (per cache_tag)
-├── docs/                     # See note below
 └── requirements.txt
 ```
-
-Legacy link: **`docs/BACKEND_FLOW.md`** redirects here so the README stays the single overview.
 
 ---
 
