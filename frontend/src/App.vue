@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 import { useRaceStore } from './stores/raceStore'
 import ControlsPanel from './components/ControlsPanel.vue'
 import RaceTrace from './components/RaceTrace.vue'
@@ -7,8 +7,121 @@ import BumpChart from './components/BumpChart.vue'
 import StintBar from './components/StintBar.vue'
 import PitHeatmap from './components/PitHeatmap.vue'
 import DeltaBreakdown from './components/DeltaBreakdown.vue'
+import BoundedCanvas from './components/BoundedCanvas.vue'
+import DraggableCard from './components/DraggableCard.vue'
 
 const store = useRaceStore()
+
+const EXPANDED_LABELS = {
+  raceTrace: 'Race trace — gap to leader',
+  bumpChart: 'Bump chart — positions',
+  stintBar: 'Stint history',
+  pitHeatmap: 'Pit window heatmap',
+  deltaBreakdown: 'Delta breakdown',
+}
+
+const expandedPanelLabel = computed(() => {
+  const id = store.expandedPanelId
+  return id ? EXPANDED_LABELS[id] || '' : ''
+})
+
+function closeExpanded() {
+  store.setExpandedPanel(null)
+}
+
+/** Basic-mode per-panel heights (user-resizable via bottom drag handle). */
+const basicHeights = reactive({
+  raceTrace: 380,
+  bumpChart: 380,
+  stintBar: 340,
+  pitHeatmap: 340,
+  deltaBreakdown: 320,
+})
+
+const basicPanelStyles = computed(() =>
+  Object.fromEntries(
+    Object.entries(basicHeights).map(([id, h]) => [id, { height: `${h}px` }])
+  )
+)
+
+const basicResize = {
+  active: false,
+  id: null,
+  pointerId: null,
+  startY: 0,
+  startH: 0,
+}
+
+function onBasicResizeDown(e, id) {
+  if (e.button !== 0 && e.pointerType === 'mouse') return
+  basicResize.active = true
+  basicResize.id = id
+  basicResize.pointerId = e.pointerId
+  basicResize.startY = e.clientY
+  basicResize.startH = basicHeights[id]
+  try {
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  } catch {}
+  window.addEventListener('pointermove', onBasicResizeMove)
+  window.addEventListener('pointerup', onBasicResizeUp)
+  window.addEventListener('pointercancel', onBasicResizeUp)
+  e.preventDefault()
+}
+
+function onBasicResizeMove(e) {
+  if (!basicResize.active || e.pointerId !== basicResize.pointerId) return
+  const dy = e.clientY - basicResize.startY
+  basicHeights[basicResize.id] = Math.max(200, basicResize.startH + dy)
+}
+
+function onBasicResizeUp(e) {
+  if (!basicResize.active) return
+  if (e.pointerId !== basicResize.pointerId) return
+  basicResize.active = false
+  basicResize.id = null
+  basicResize.pointerId = null
+  window.removeEventListener('pointermove', onBasicResizeMove)
+  window.removeEventListener('pointerup', onBasicResizeUp)
+  window.removeEventListener('pointercancel', onBasicResizeUp)
+}
+
+/** Pro-mode default layout — staggered around (0, 0) so cards do not overlap. */
+const PRO_DEFAULT_LAYOUT = {
+  raceTrace:      { title: 'Race trace',      x: -620, y: -380, width: 600, height: 360 },
+  bumpChart:      { title: 'Position flow',   x: 20,   y: -380, width: 600, height: 360 },
+  stintBar:       { title: 'Stint history',   x: -620, y: 0,    width: 600, height: 360 },
+  pitHeatmap:     { title: 'Pit heatmap',     x: 20,   y: 0,    width: 600, height: 360 },
+  deltaBreakdown: { title: 'Delta breakdown', x: -300, y: 380,  width: 920, height: 340 },
+}
+
+const proCards = reactive(
+  Object.fromEntries(
+    Object.entries(PRO_DEFAULT_LAYOUT).map(([id, c]) => [
+      id,
+      { x: c.x, y: c.y, width: c.width, height: c.height },
+    ])
+  )
+)
+
+function resetProLayout() {
+  for (const [id, c] of Object.entries(PRO_DEFAULT_LAYOUT)) {
+    proCards[id].x = c.x
+    proCards[id].y = c.y
+    proCards[id].width = c.width
+    proCards[id].height = c.height
+  }
+}
+
+watch(
+  () => store.viewMode,
+  (mode, prev) => {
+    if (mode === 'pro' && prev !== 'pro') resetProLayout()
+  }
+)
+
+function setViewMode(mode) {
+  store.setViewMode(mode)
+}
 
 onMounted(() => {
   store.bootstrap()
@@ -16,13 +129,45 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app">
+  <div
+    class="app"
+    :class="{
+      'app--expanded': !!store.expandedPanelId && store.viewMode === 'basic',
+      'app--pro': store.viewMode === 'pro',
+    }"
+  >
     <header class="app-header" role="banner">
       <div class="app-brand">
         <h1 class="app-title">What If<span class="app-title__q">?</span></h1>
         <span class="app-subtitle">Interactive F1 Strategy Visualization</span>
       </div>
       <div class="app-header-actions">
+        <div
+          class="view-mode-toggle"
+          role="radiogroup"
+          aria-label="Workspace view mode"
+        >
+          <button
+            type="button"
+            role="radio"
+            :aria-checked="store.viewMode === 'basic'"
+            class="view-mode-toggle__btn"
+            :class="{ 'view-mode-toggle__btn--active': store.viewMode === 'basic' }"
+            @click="setViewMode('basic')"
+          >
+            Basic
+          </button>
+          <button
+            type="button"
+            role="radio"
+            :aria-checked="store.viewMode === 'pro'"
+            class="view-mode-toggle__btn"
+            :class="{ 'view-mode-toggle__btn--active': store.viewMode === 'pro' }"
+            @click="setViewMode('pro')"
+          >
+            Pro
+          </button>
+        </div>
         <a
           class="app-about"
           href="/about.html"
@@ -63,28 +208,164 @@ onMounted(() => {
       {{ store.error }}
     </div>
 
-    <main id="main-dashboard" class="dashboard" v-if="store.raceData" aria-label="Race strategy dashboard">
-      <div class="dashboard-row dashboard-row--top">
-        <section class="panel panel--race-trace" aria-label="Race trace chart: gap to leader over laps">
+    <main
+      id="main-dashboard"
+      v-if="store.raceData && store.viewMode === 'pro'"
+      class="dashboard dashboard--pro"
+      aria-label="Race strategy dashboard, pro canvas"
+    >
+      <BoundedCanvas>
+        <DraggableCard
+          v-for="(meta, id) in PRO_DEFAULT_LAYOUT"
+          :key="id"
+          :card-id="id"
+          :title="meta.title"
+          :x="proCards[id].x"
+          :y="proCards[id].y"
+          :width="proCards[id].width"
+          :height="proCards[id].height"
+          :aria-label="meta.title"
+          @update:x="(v) => (proCards[id].x = v)"
+          @update:y="(v) => (proCards[id].y = v)"
+          @update:width="(v) => (proCards[id].width = v)"
+          @update:height="(v) => (proCards[id].height = v)"
+        >
+          <RaceTrace v-if="id === 'raceTrace'" />
+          <BumpChart v-else-if="id === 'bumpChart'" />
+          <StintBar v-else-if="id === 'stintBar'" />
+          <PitHeatmap v-else-if="id === 'pitHeatmap'" />
+          <DeltaBreakdown v-else-if="id === 'deltaBreakdown'" />
+        </DraggableCard>
+      </BoundedCanvas>
+    </main>
+
+    <main
+      id="main-dashboard"
+      v-else-if="store.raceData"
+      :class="store.expandedPanelId ? 'dashboard dashboard--expanded' : 'dashboard'"
+      aria-label="Race strategy dashboard"
+    >
+      <template v-if="store.expandedPanelId">
+        <div class="dashboard-expanded-bar">
+          <button type="button" class="dashboard-expanded-back" @click="closeExpanded">
+            Back to dashboard
+          </button>
+          <span class="dashboard-expanded-title" aria-live="polite">{{ expandedPanelLabel }}</span>
+        </div>
+        <section
+          v-if="store.expandedPanelId === 'raceTrace'"
+          class="panel panel--expanded panel--race-trace"
+          aria-label="Race trace chart: gap to leader over laps"
+        >
           <RaceTrace />
         </section>
-        <section class="panel panel--bump-chart" aria-label="Position flow chart: driver positions over laps">
+        <section
+          v-else-if="store.expandedPanelId === 'bumpChart'"
+          class="panel panel--expanded panel--bump-chart"
+          aria-label="Position flow chart: driver positions over laps"
+        >
           <BumpChart />
         </section>
-      </div>
-      <div class="dashboard-row dashboard-row--mid">
-        <section class="panel panel--stint-bar" aria-label="Stint history: tyre strategies per driver">
+        <section
+          v-else-if="store.expandedPanelId === 'stintBar'"
+          class="panel panel--expanded panel--stint-bar"
+          aria-label="Stint history: tyre strategies per driver"
+        >
           <StintBar />
         </section>
-        <section class="panel panel--heatmap" aria-label="Pit window heatmap: predicted gain or loss per lap">
+        <section
+          v-else-if="store.expandedPanelId === 'pitHeatmap'"
+          class="panel panel--expanded panel--heatmap"
+          aria-label="Pit window heatmap: predicted gain or loss per lap"
+        >
           <PitHeatmap />
         </section>
-      </div>
-      <div class="dashboard-row dashboard-row--bottom">
-        <section class="panel panel--delta" aria-label="Delta breakdown: time gap decomposition by factor">
+        <section
+          v-else-if="store.expandedPanelId === 'deltaBreakdown'"
+          class="panel panel--expanded panel--delta"
+          aria-label="Delta breakdown: time gap decomposition by factor"
+        >
           <DeltaBreakdown />
         </section>
-      </div>
+      </template>
+      <template v-else>
+        <div class="dashboard-row dashboard-row--top">
+          <section
+            class="panel panel--resizable panel--race-trace"
+            :style="basicPanelStyles.raceTrace"
+            aria-label="Race trace chart: gap to leader over laps"
+          >
+            <RaceTrace />
+            <div
+              class="panel-resizer"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize race trace panel height"
+              @pointerdown="(e) => onBasicResizeDown(e, 'raceTrace')"
+            ></div>
+          </section>
+          <section
+            class="panel panel--resizable panel--bump-chart"
+            :style="basicPanelStyles.bumpChart"
+            aria-label="Position flow chart: driver positions over laps"
+          >
+            <BumpChart />
+            <div
+              class="panel-resizer"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize position flow panel height"
+              @pointerdown="(e) => onBasicResizeDown(e, 'bumpChart')"
+            ></div>
+          </section>
+        </div>
+        <div class="dashboard-row dashboard-row--mid">
+          <section
+            class="panel panel--resizable panel--stint-bar"
+            :style="basicPanelStyles.stintBar"
+            aria-label="Stint history: tyre strategies per driver"
+          >
+            <StintBar />
+            <div
+              class="panel-resizer"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize stint history panel height"
+              @pointerdown="(e) => onBasicResizeDown(e, 'stintBar')"
+            ></div>
+          </section>
+          <section
+            class="panel panel--resizable panel--heatmap"
+            :style="basicPanelStyles.pitHeatmap"
+            aria-label="Pit window heatmap: predicted gain or loss per lap"
+          >
+            <PitHeatmap />
+            <div
+              class="panel-resizer"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize pit heatmap panel height"
+              @pointerdown="(e) => onBasicResizeDown(e, 'pitHeatmap')"
+            ></div>
+          </section>
+        </div>
+        <div class="dashboard-row dashboard-row--bottom">
+          <section
+            class="panel panel--resizable panel--delta"
+            :style="basicPanelStyles.deltaBreakdown"
+            aria-label="Delta breakdown: time gap decomposition by factor"
+          >
+            <DeltaBreakdown />
+            <div
+              class="panel-resizer"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize delta breakdown panel height"
+              @pointerdown="(e) => onBasicResizeDown(e, 'deltaBreakdown')"
+            ></div>
+          </section>
+        </div>
+      </template>
     </main>
 
     <main id="main-dashboard" class="empty-state" v-else-if="!store.loading" aria-label="Welcome">
@@ -113,6 +394,14 @@ onMounted(() => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+}
+
+/* Lock viewport only when a chart is expanded so the panel can fill the screen. */
+.app--expanded {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .app-header {
@@ -258,41 +547,155 @@ onMounted(() => {
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-6);
-  padding-bottom: var(--space-8);
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  padding-bottom: var(--space-4);
+}
+
+.app--pro {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.dashboard--pro {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: var(--space-3) var(--space-4);
+  padding-bottom: var(--space-4);
+}
+
+.view-mode-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  padding: 2px;
+  gap: 2px;
+}
+
+.view-mode-toggle__btn {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  transition: color var(--duration-normal) var(--ease-out),
+    background var(--duration-normal) var(--ease-out);
+}
+
+.view-mode-toggle__btn:hover {
+  color: var(--color-text);
+}
+
+.view-mode-toggle__btn--active {
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.view-mode-toggle__btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.dashboard--expanded {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: var(--space-4);
+}
+
+.dashboard-expanded-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.dashboard-expanded-back {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.dashboard-expanded-back:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.dashboard-expanded-back:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.dashboard-expanded-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.panel--expanded {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .dashboard-row {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  min-height: 0;
+  /* Each panel sets its own height (user-resizable via .panel-resizer). */
+  align-items: start;
 }
 
 .dashboard-row--top {
   grid-template-columns: 3fr 2fr;
-  height: 380px;
 }
 
 .dashboard-row--mid {
   grid-template-columns: 3fr 2fr;
-  height: 240px;
+}
+
+.panel.panel--stint-bar {
+  min-height: 200px;
 }
 
 .dashboard-row--bottom {
   grid-template-columns: 1fr;
-  /* Fixed height: avoids content-driven row growth (delta panel + SVG was stretching the row). */
-  height: 420px;
-  min-height: 0;
-  max-height: 420px;
 }
 
 .panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: var(--space-4);
+  padding: var(--space-2);
   overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   transition: border-color var(--duration-normal) var(--ease-out),
               box-shadow var(--duration-normal) var(--ease-out);
 }
@@ -308,12 +711,50 @@ onMounted(() => {
 
 .panel--delta {
   box-sizing: border-box;
-  height: 100%;
-  max-height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.panel--resizable {
+  position: relative;
+  padding-bottom: calc(var(--space-2) + 6px);
+}
+
+.panel-resizer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    transparent 35%,
+    var(--color-border) 35%,
+    var(--color-border) 65%,
+    transparent 65%
+  );
+  background-size: 32px 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.6;
+  transition: opacity var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+  touch-action: none;
+  user-select: none;
+}
+
+.panel-resizer:hover {
+  opacity: 1;
+  background-color: rgba(225, 6, 0, 0.08);
+}
+
+.panel-resizer:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 .empty-state {

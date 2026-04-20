@@ -1,32 +1,11 @@
 <script setup>
-import { ref, watch } from 'vue'
-import * as d3 from 'd3'
+import { computed } from 'vue'
 import { useRaceStore } from '../stores/raceStore'
-import { useChart } from '../composables/useChart'
-import { useTooltip } from '../composables/useTooltip'
-
-const COMPOUND_COLORS = {
-  SOFT: '#ff3333',
-  MEDIUM: '#ffd700',
-  HARD: '#e8e8e8',
-  INTERMEDIATE: '#3cc54e',
-  WET: '#3388ee',
-}
+import { chartVizLayers, useSimHoldPreview } from '../composables/useSimHoldPreview'
+import StintDriverCell from './StintDriverCell.vue'
 
 const store = useRaceStore()
-const container = ref(null)
-const tooltip = useTooltip()
-
-const margin = { top: 16, right: 24, bottom: 36, left: 52 }
-const { width, height, getG, getSvg, onDraw, redraw } = useChart(container, margin)
-
-onDraw(draw)
-
-watch(
-  () => [store.activeDrivers, store.hoveredLap, store.modifiedStrategy, store.savedSimulations, store.simulatedData, store.showSimulated],
-  () => { redraw() },
-  { deep: true }
-)
+const { onSimHoldPointerDown } = useSimHoldPreview(store, 'stintBar')
 
 function getDriverStrategy(driver) {
   if (store.modifiedStrategy && store.modifiedStrategy.driverCode === driver.code) {
@@ -37,219 +16,48 @@ function getDriverStrategy(driver) {
   return driver.pitStops
 }
 
-function buildStints(driver, pitStops, totalLaps) {
-  const stints = []
-  let stintStart = 1
-
-  for (const pit of pitStops) {
-    const startLapData = driver.laps.find(l => l.lap === stintStart)
-    stints.push({
-      startLap: stintStart,
-      endLap: pit.lap - 1,
-      compound: pit.fromCompound || startLapData?.compound || 'MEDIUM',
-    })
-    stintStart = pit.lap
-  }
-
-  const lastPit = pitStops[pitStops.length - 1]
-  stints.push({
-    startLap: stintStart,
-    endLap: totalLaps,
-    compound: lastPit?.toCompound || driver.laps.find(l => l.lap === stintStart)?.compound || 'HARD',
-  })
-
-  return stints
+function isStintDimmed(code) {
+  const h = store.highlightedDriver
+  const f = store.focusDriverCode
+  if (h && h !== code) return true
+  if (f && f !== code) return true
+  return false
 }
 
-function draw() {
-  const g = getG()
-  const svg = getSvg()
-  const w = width.value
-  const h = height.value
-  if (!g || !svg || w <= 0 || h <= 0) return
+const totalLaps = computed(() => {
+  if (store.totalLaps) return store.totalLaps
+  const laps = store.activeDrivers.flatMap((d) => d.laps.map((l) => l.lap))
+  return laps.length ? Math.max(...laps) : 1
+})
 
-  svg.attr('role', 'img')
-    .attr('aria-label', 'Stint history showing tyre strategies. Drag pit markers to modify strategy.')
-
+const stintRows = computed(() => {
   const drivers = store.activeDrivers
-  if (!drivers.length) return
+  if (!drivers.length) return []
 
-  const totalLaps = store.totalLaps || d3.max(drivers.flatMap(d => d.laps), l => l.lap)
+  const { showActual, showSim: showSimViz } = chartVizLayers(store, 'stintBar')
+  const showSimLayer = !!(showSimViz && store.simulatedData?.drivers?.length)
+  const simOnly = !showActual && showSimLayer
 
-  const x = d3.scaleLinear().domain([1, totalLaps]).range([0, w])
-  const yBand = d3.scaleBand()
-    .domain(drivers.map(d => d.code)).range([0, h]).padding(0.25)
+  if (!showActual && !showSimLayer) return []
 
-  g.append('g').attr('class', 'axis').attr('transform', `translate(0,${h})`)
-    .call(d3.axisBottom(x).ticks(Math.min(w / 60, 20)).tickFormat(d => `L${d}`))
-  g.append('g').attr('class', 'grid').attr('transform', `translate(0,${h})`)
-    .call(d3.axisBottom(x).tickSize(-h).tickFormat(''))
-
-  drivers.forEach(driver => {
+  const rows = drivers.map((driver) => {
     const pitStops = getDriverStrategy(driver)
-    const stints = buildStints(driver, pitStops, totalLaps)
-    const yPos = yBand(driver.code)
-    const bh = yBand.bandwidth()
-    const isEditingRow = store.modifiedStrategy?.driverCode === driver.code
-    const hasSavedSim = !!store.savedSimulations?.[driver.code]
-    const showStrategyStyle = isEditingRow || hasSavedSim
-
-    g.append('text')
-      .attr('x', -8).attr('y', yPos + bh / 2).attr('dy', '0.35em')
-      .attr('text-anchor', 'end')
-      .style('font-size', 'var(--text-xs)').style('font-weight', '700')
-      .style('font-family', 'var(--font-display)')
-      .style('fill', driver.color)
-      .text(driver.code + (isEditingRow ? ' ●' : hasSavedSim ? ' ◆' : ''))
-
-    stints.forEach(stint => {
-      const sx = x(stint.startLap)
-      const ex = x(stint.endLap)
-      const bw = Math.max(2, ex - sx)
-
-      g.append('rect')
-        .attr('x', sx).attr('y', yPos)
-        .attr('width', bw).attr('height', bh).attr('rx', 3)
-        .attr('fill', COMPOUND_COLORS[stint.compound] || '#888')
-        .attr('fill-opacity', showStrategyStyle ? 0.9 : 0.75)
-        .attr('stroke', showStrategyStyle ? '#fff' : driver.color)
-        .attr('stroke-width', showStrategyStyle ? 1.5 : 1)
-        .attr('stroke-dasharray', showStrategyStyle ? '4,2' : 'none')
-        .on('mouseover', (event) => {
-          tooltip.show(`<strong style="color:${driver.color}">${driver.code}</strong>
-            ${isEditingRow ? '<em>(editing)</em>' : hasSavedSim ? '<em>(saved sim)</em>' : ''}<br/>
-            ${stint.compound} · Laps ${stint.startLap}–${stint.endLap}
-            (${stint.endLap - stint.startLap + 1} laps)`)
-          tooltip.move(event)
-        })
-        .on('mousemove', (event) => tooltip.move(event))
-        .on('mouseout', () => tooltip.hide())
-
-      if (bw > 40) {
-        g.append('text')
-          .attr('x', sx + bw / 2).attr('y', yPos + bh / 2).attr('dy', '0.35em')
-          .attr('text-anchor', 'middle')
-          .style('font-size', '9px').style('font-weight', '700')
-          .style('font-family', 'var(--font-display)')
-          .style('fill', '#1a1a1a')
-          .style('pointer-events', 'none').text(stint.compound[0])
-      }
-    })
-
-    pitStops.forEach((pit, pitIdx) => {
-      const px = x(pit.lap)
-
-      g.append('line')
-        .attr('x1', px).attr('x2', px)
-        .attr('y1', yPos - 2).attr('y2', yPos + bh + 2)
-        .attr('stroke', '#fff').attr('stroke-width', 2)
-        .attr('stroke-dasharray', '3,2')
-
-      const dragCircle = g.append('circle')
-        .attr('cx', px).attr('cy', yPos - 6).attr('r', 5)
-        .attr('fill', isEditingRow ? 'var(--color-accent)' : '#fff')
-        .attr('stroke', driver.color).attr('stroke-width', 2)
-        .style('cursor', 'ew-resize')
-        .attr('tabindex', 0)
-        .attr('role', 'slider')
-        .attr('aria-label', `${driver.code} pit stop at lap ${pit.lap}. Drag to move.`)
-        .attr('aria-valuemin', 2)
-        .attr('aria-valuemax', totalLaps - 1)
-        .attr('aria-valuenow', pit.lap)
-
-      const drag = d3.drag()
-        .on('start', function () {
-          d3.select(this).attr('r', 7).attr('fill', 'var(--color-accent)')
-        })
-        .on('drag', function (event) {
-          const newX = Math.max(0, Math.min(w, event.x))
-          d3.select(this).attr('cx', newX)
-        })
-        .on('end', function (event) {
-          const newX = Math.max(0, Math.min(w, event.x))
-          const newLap = Math.round(x.invert(newX))
-          const clampedLap = Math.max(2, Math.min(totalLaps - 1, newLap))
-          d3.select(this).attr('r', 5)
-          const currentPits = [...pitStops.map(p => ({ ...p }))]
-          currentPits[pitIdx] = { ...currentPits[pitIdx], lap: clampedLap }
-          currentPits.sort((a, b) => a.lap - b.lap)
-          const strategy = {
-            driverCode: driver.code,
-            pitStops: currentPits,
-          }
-          // Invalidate old sim + call API so race trace / overlays update (Pinia-friendly).
-          void store.applyPitStrategyChange(strategy)
-        })
-
-      dragCircle.call(drag)
-
-      dragCircle
-        .on('mouseover', (event) => {
-          tooltip.show(`<strong style="color:${driver.color}">${driver.code}</strong>
-            Pit Lap ${pit.lap}<br/>
-            ${pit.fromCompound} → ${pit.toCompound} · ${pit.duration_s.toFixed(1)}s<br/>
-            <em style="color:var(--color-text-muted)">Drag to move pit stop</em>`)
-          tooltip.move(event)
-        })
-        .on('mousemove', (event) => tooltip.move(event))
-        .on('mouseout', () => tooltip.hide())
-    })
+    const simDriver =
+      store.simulatedData?.drivers?.find((s) => s.code === driver.code) || null
+    return {
+      driver,
+      pitStops,
+      originalPitStops: driver.pitStops || [],
+      simDriver,
+      showActual,
+      showSimLayer,
+      simOnly,
+    }
   })
 
-  if (store.showSimulated && store.simulatedData?.drivers?.length) {
-    store.simulatedData.drivers.forEach((simDriver) => {
-      const simCode = simDriver.code
-      const origDriver = drivers.find(d => d.code === simCode)
-      if (!origDriver) return
-      const yPos = yBand(simCode)
-      if (yPos == null) return
-      const bh = yBand.bandwidth()
-      const simStints = buildStints(simDriver, simDriver.pitStops, totalLaps)
-      const simY = yPos + bh + 3
-      const simH = Math.max(6, bh * 0.45)
-
-      g.append('text')
-        .attr('x', -8).attr('y', simY + simH / 2).attr('dy', '0.35em')
-        .attr('text-anchor', 'end')
-        .style('font-size', '8px').style('font-weight', '600')
-        .style('font-family', 'var(--font-display)')
-        .style('fill', 'var(--color-text-muted)')
-        .style('font-style', 'italic')
-        .text('sim')
-
-      simStints.forEach(stint => {
-        const sx = x(stint.startLap)
-        const ex = x(stint.endLap)
-        const bw = Math.max(2, ex - sx)
-        g.append('rect')
-          .attr('x', sx).attr('y', simY)
-          .attr('width', bw).attr('height', simH).attr('rx', 2)
-          .attr('fill', COMPOUND_COLORS[stint.compound] || '#888')
-          .attr('fill-opacity', 0.6)
-          .attr('stroke', origDriver.color)
-          .attr('stroke-width', 1)
-          .attr('stroke-dasharray', '3,2')
-      })
-
-      simDriver.pitStops.forEach(pit => {
-        const px = x(pit.lap)
-        g.append('line')
-          .attr('x1', px).attr('x2', px)
-          .attr('y1', simY - 1).attr('y2', simY + simH + 1)
-          .attr('stroke', '#fff').attr('stroke-width', 1.5)
-          .attr('stroke-dasharray', '2,2')
-      })
-    })
-  }
-
-  if (store.hoveredLap != null) {
-    g.append('line')
-      .attr('x1', x(store.hoveredLap)).attr('x2', x(store.hoveredLap))
-      .attr('y1', 0).attr('y2', h)
-      .attr('stroke', 'var(--color-text-muted)').attr('stroke-width', 1)
-      .attr('stroke-dasharray', '4,3').attr('opacity', 0.5)
-  }
-}
+  if (simOnly) return rows.filter((r) => r.simDriver)
+  return rows
+})
 </script>
 
 <template>
@@ -259,15 +67,55 @@ function draw() {
         Stint History
         <span class="panel-hint">Drag pit markers to change strategy</span>
       </h3>
-      <span
-        class="modified-badge"
-        v-if="store.modifiedStrategy || store.savedSimulationCodes.length"
-        role="status"
-        aria-live="polite"
-      >{{ store.savedSimulationCodes.length ? 'Strategy / sim saved' : 'Strategy Modified' }}</span>
+      <div class="panel-header-actions">
+        <span
+          class="modified-badge"
+          v-if="store.modifiedStrategy || store.savedSimulationCodes.length"
+          role="status"
+          aria-live="polite"
+        >{{ store.savedSimulationCodes.length ? 'Strategy / sim saved' : 'Strategy Modified' }}</span>
+        <button
+          type="button"
+          class="panel-expand panel-sim-hold"
+          :disabled="!store.hasSavedSimulations"
+          title="Hold to preview this chart with simulated data only"
+          aria-label="Hold to preview stint history with simulated data only"
+          @pointerdown="onSimHoldPointerDown"
+          @click.prevent
+        >
+          Sim
+        </button>
+        <button
+          type="button"
+          class="panel-expand"
+          :aria-expanded="store.expandedPanelId === 'stintBar'"
+          aria-label="Expand stint history panel"
+          @click="store.toggleExpandedPanel('stintBar')"
+        >
+          Expand
+        </button>
+      </div>
     </div>
-    <div ref="container" class="chart-container" role="figure" aria-label="Tyre stint bars per driver">
-      <p class="placeholder" v-if="!store.raceData">Select a race to view stints</p>
+    <div class="chart-container" role="region" aria-label="Tyre stint bars per driver">
+      <p v-if="!store.raceData" class="placeholder">Select a race to view stints</p>
+      <p v-else-if="!store.activeDrivers.length" class="placeholder">
+        Select one or more drivers to view stints
+      </p>
+      <div v-else class="stint-cells">
+        <StintDriverCell
+          v-for="row in stintRows"
+          :key="row.driver.code"
+          :driver="row.driver"
+          :pit-stops="row.pitStops"
+          :original-pit-stops="row.originalPitStops"
+          :sim-driver="row.simDriver"
+          :total-laps="totalLaps"
+          :show-actual="row.showActual"
+          :show-sim-layer="row.showSimLayer"
+          :sim-only="row.simOnly"
+          :dimmed="isStintDimmed(row.driver.code)"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -306,6 +154,47 @@ function draw() {
   margin-left: var(--space-2);
 }
 
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.panel-expand {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.panel-expand:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.panel-sim-hold {
+  touch-action: none;
+  user-select: none;
+}
+
+.panel-sim-hold:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.panel-sim-hold:disabled:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
 .modified-badge {
   font-family: var(--font-display);
   font-size: var(--text-xs);
@@ -320,24 +209,39 @@ function draw() {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .chart-container {
-  flex: 1;
+  flex: 1 1 0;
   position: relative;
   min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.stint-cells {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-bottom: var(--space-1);
 }
 
 .placeholder {
-  position: absolute;
-  inset: 0;
+  padding: var(--space-6) var(--space-4);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--color-text-muted);
   font-family: var(--font-body);
   font-size: var(--text-base);
+  text-align: center;
 }
 </style>

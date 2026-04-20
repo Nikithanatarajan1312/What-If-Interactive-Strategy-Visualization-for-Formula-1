@@ -30,14 +30,32 @@ export const useRaceStore = defineStore('race', () => {
   const loading = ref(false)
   const error = ref(null)
 
+  /** @type {import('vue').Ref<'overlay' | 'split' | 'actual_only' | 'sim_only'>} */
+  const vizCompareMode = ref('overlay')
+  /** When set, charts emphasize this driver (baseline + sim); others dimmed. */
+  const focusDriverCode = ref(null)
+  /** @type {import('vue').Ref<null | 'raceTrace' | 'bumpChart' | 'stintBar' | 'pitHeatmap' | 'deltaBreakdown'>} */
+  const expandedPanelId = ref(null)
+  /** @type {import('vue').Ref<'basic' | 'pro'>} */
+  const viewMode = ref('basic')
+  /** Pit heatmap driver slice (page index when many drivers). */
+  const heatmapPage = ref(0)
+
+  /**
+   * While non-null, that chart panel alone shows simulated data only (pointer-hold preview).
+   * @type {import('vue').Ref<null | 'raceTrace' | 'bumpChart' | 'stintBar' | 'pitHeatmap' | 'deltaBreakdown'>}
+   */
+  const simHoldChartId = ref(null)
+
   const modifiedStrategy = ref(null)
   /** @type {import('vue').Ref<null | { pit_window: Record<string, object[]>, delta_breakdown: Record<string, object> }>} */
   const strategyViz = ref(null)
 
   const drivers = computed(() => raceData.value?.drivers ?? [])
 
+  /** Only drivers explicitly selected in the UI (empty after load = none). */
   const activeDrivers = computed(() => {
-    if (selectedDrivers.value.length === 0) return drivers.value
+    if (selectedDrivers.value.length === 0) return []
     return drivers.value.filter((d) => selectedDrivers.value.includes(d.code))
   })
 
@@ -51,6 +69,22 @@ export const useRaceStore = defineStore('race', () => {
   })
 
   const savedSimulationCodes = computed(() => Object.keys(savedSimulations.value))
+
+  const hasSavedSimulations = computed(() => savedSimulationCodes.value.length > 0)
+
+  /** Draw simulated geometry (gap trace, bump, etc.) — respects compare mode. */
+  const vizShowSimLayer = computed(() => {
+    if (!hasSavedSimulations.value) return false
+    if (vizCompareMode.value === 'actual_only') return false
+    if (vizCompareMode.value === 'sim_only') return true
+    return showSimulated.value
+  })
+
+  /** Draw baseline / actual geometry. */
+  const vizShowActualLayer = computed(() => {
+    if (vizCompareMode.value === 'sim_only') return false
+    return true
+  })
 
   /** True when current modified pits differ from race actual and from saved snapshot for this driver (needs Run). */
   const canRunSimulation = computed(() => {
@@ -92,6 +126,12 @@ export const useRaceStore = defineStore('race', () => {
       savedSimulations.value = {}
       modifiedStrategy.value = null
       showSimulated.value = false
+      vizCompareMode.value = 'overlay'
+      focusDriverCode.value = null
+      expandedPanelId.value = null
+      heatmapPage.value = 0
+      simHoldChartId.value = null
+      selectedDrivers.value = []
       availableRaces.value = await api.fetchRacesForYear(year)
     } catch (e) {
       error.value = `Failed to load races: ${e.message}`
@@ -113,6 +153,11 @@ export const useRaceStore = defineStore('race', () => {
     showSimulated.value = false
     brushedLapRange.value = null
     highlightedDriver.value = null
+    vizCompareMode.value = 'overlay'
+    focusDriverCode.value = null
+    expandedPanelId.value = null
+    heatmapPage.value = 0
+    simHoldChartId.value = null
     try {
       const year = Number(race.year)
       const grand_prix = String(race.grand_prix ?? '').trim()
@@ -240,7 +285,12 @@ export const useRaceStore = defineStore('race', () => {
     const next = { ...savedSimulations.value }
     delete next[code]
     savedSimulations.value = next
-    if (!Object.keys(next).length) showSimulated.value = false
+    if (!Object.keys(next).length) {
+      showSimulated.value = false
+      vizCompareMode.value = 'overlay'
+      focusDriverCode.value = null
+      simHoldChartId.value = null
+    }
   }
 
   function toggleDriver(code) {
@@ -249,6 +299,16 @@ export const useRaceStore = defineStore('race', () => {
       selectedDrivers.value.push(code)
     } else {
       selectedDrivers.value.splice(idx, 1)
+      removeSavedSimulation(code)
+      if (modifiedStrategy.value?.driverCode === code) {
+        modifiedStrategy.value = null
+      }
+      if (highlightedDriver.value === code) {
+        highlightedDriver.value = null
+      }
+      if (focusDriverCode.value === code) {
+        focusDriverCode.value = null
+      }
     }
   }
 
@@ -268,7 +328,51 @@ export const useRaceStore = defineStore('race', () => {
     savedSimulations.value = {}
     modifiedStrategy.value = null
     showSimulated.value = false
+    vizCompareMode.value = 'overlay'
+    focusDriverCode.value = null
+    expandedPanelId.value = null
+    heatmapPage.value = 0
+    simHoldChartId.value = null
     error.value = null
+  }
+
+  function setVizCompareMode(mode) {
+    const allowed = ['overlay', 'split', 'actual_only', 'sim_only']
+    if (!allowed.includes(mode)) return
+    vizCompareMode.value = mode
+    if (mode === 'sim_only' || mode === 'overlay' || mode === 'split') {
+      if (hasSavedSimulations.value) showSimulated.value = true
+    }
+  }
+
+  function setFocusDriver(code) {
+    focusDriverCode.value = code && String(code).trim() ? String(code).trim() : null
+  }
+
+  function setExpandedPanel(id) {
+    expandedPanelId.value = id
+  }
+
+  function setViewMode(mode) {
+    if (mode !== 'basic' && mode !== 'pro') return
+    viewMode.value = mode
+    if (mode === 'pro') expandedPanelId.value = null
+  }
+
+  function toggleExpandedPanel(id) {
+    expandedPanelId.value = expandedPanelId.value === id ? null : id
+  }
+
+  function setHeatmapPage(n) {
+    heatmapPage.value = Math.max(0, Math.floor(n))
+  }
+
+  function setSimHoldChart(id) {
+    simHoldChartId.value = id
+  }
+
+  function clearSimHoldChart() {
+    simHoldChartId.value = null
   }
 
   return {
@@ -287,6 +391,15 @@ export const useRaceStore = defineStore('race', () => {
     brushedLapRange,
     highlightedDriver,
     showSimulated,
+    vizCompareMode,
+    focusDriverCode,
+    expandedPanelId,
+    viewMode,
+    heatmapPage,
+    simHoldChartId,
+    hasSavedSimulations,
+    vizShowSimLayer,
+    vizShowActualLayer,
     loading,
     error,
     modifiedStrategy,
@@ -307,5 +420,13 @@ export const useRaceStore = defineStore('race', () => {
     setBrushedRange,
     setHighlightedDriver,
     resetStrategy,
+    setVizCompareMode,
+    setFocusDriver,
+    setExpandedPanel,
+    toggleExpandedPanel,
+    setViewMode,
+    setHeatmapPage,
+    setSimHoldChart,
+    clearSimHoldChart,
   }
 })
