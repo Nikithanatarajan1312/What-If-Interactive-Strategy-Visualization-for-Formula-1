@@ -89,21 +89,39 @@ function lapFromClientX(clientX) {
   return Math.round(1 + Math.max(0, Math.min(1, t)) * span)
 }
 
-function applyPitMove(pitIdx, newLap) {
+/** Build the next pit list with one pit moved to `newLap`. */
+function pitsWithMove(pitIdx, newLap) {
   const clamped = Math.max(2, Math.min(props.totalLaps - 1, newLap))
   const currentPits = props.pitStops.map((p) => ({ ...p }))
   currentPits[pitIdx] = { ...currentPits[pitIdx], lap: clamped }
   currentPits.sort((a, b) => a.lap - b.lap)
+  return { pits: currentPits, lap: clamped }
+}
+
+/** Visual-only update during drag — no backend simulate, just local strategy state. */
+function applyPitMoveLocal(pitIdx, newLap) {
+  const { pits } = pitsWithMove(pitIdx, newLap)
+  store.setModifiedStrategy({
+    driverCode: props.driver.code,
+    pitStops: pits,
+  })
+}
+
+/** Commit on drag end: triggers the actual simulate() call once. */
+function applyPitMoveCommit(pitIdx, newLap) {
+  const { pits } = pitsWithMove(pitIdx, newLap)
   void store.applyPitStrategyChange({
     driverCode: props.driver.code,
-    pitStops: currentPits,
+    pitStops: pits,
   })
 }
 
 function onWindowPointerMove(e) {
   const d = dragging.value
   if (!d || e.pointerId !== d.pointerId) return
-  applyPitMove(d.pitIdx, lapFromClientX(e.clientX))
+  const lap = lapFromClientX(e.clientX)
+  d.lastLap = lap
+  applyPitMoveLocal(d.pitIdx, lap)
 }
 
 function endWindowDrag(e) {
@@ -112,6 +130,10 @@ function endWindowDrag(e) {
   window.removeEventListener('pointermove', onWindowPointerMove)
   window.removeEventListener('pointerup', endWindowDrag)
   window.removeEventListener('pointercancel', endWindowDrag)
+  /* Commit a single simulate request only if the user actually moved the pit. */
+  if (d.lastLap != null && d.lastLap !== d.startLap) {
+    applyPitMoveCommit(d.pitIdx, d.lastLap)
+  }
   dragging.value = null
 }
 
@@ -119,7 +141,8 @@ function onPitPointerDown(e, pitIdx) {
   if (!editableHandles.value) return
   e.preventDefault()
   e.stopPropagation()
-  dragging.value = { pitIdx, pointerId: e.pointerId }
+  const startLap = props.pitStops?.[pitIdx]?.lap ?? null
+  dragging.value = { pitIdx, pointerId: e.pointerId, startLap, lastLap: startLap }
   window.addEventListener('pointermove', onWindowPointerMove)
   window.addEventListener('pointerup', endWindowDrag)
   window.addEventListener('pointercancel', endWindowDrag)
